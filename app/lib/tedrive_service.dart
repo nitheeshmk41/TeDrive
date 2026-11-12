@@ -454,29 +454,31 @@ class TeDriveService {
     if (username == null) {
       // A public link needs a public username. Pick a random free one.
       final rng = Random.secure();
-      for (var attempt = 0; attempt < 6 && username == null; attempt++) {
+      for (var attempt = 0; attempt < 8 && username == null; attempt++) {
         final candidate = randomShareUsername(rng.nextInt);
-        final check = await td.request({
-          '@type': 'checkChatUsername',
-          'chat_id': chatId,
-          'username': candidate,
-        });
-        if (check['@type'] == 'checkChatUsernameResultPublicChatsTooMany') {
-          throw StateError(
-            'Your Telegram account already has the maximum number of public '
-            'channels, so TeDrive cannot create a sharing channel.',
-          );
-        }
-        if (check['@type'] != 'checkChatUsernameResultOk') continue;
-        await td.request({
-          '@type': 'setSupergroupUsername',
-          'supergroup_id': supergroupId,
-          'username': candidate,
-        });
-        username = candidate;
+        try {
+          final check = await td.request({
+            '@type': 'checkChatUsername',
+            'chat_id': chatId,
+            'username': candidate,
+          });
+          if (check['@type'] == 'checkChatUsernameResultPublicChatsTooMany') {
+            break;
+          }
+          if (check['@type'] != 'checkChatUsernameResultOk') continue;
+          await td.request({
+            '@type': 'setSupergroupUsername',
+            'supergroup_id': supergroupId,
+            'username': candidate,
+          });
+          username = candidate;
+        } catch (_) {}
       }
       if (username == null) {
-        throw StateError('Could not reserve a link name. Please try again.');
+        throw StateError(
+          'Could not set a public link name on Telegram. '
+          'Please ensure your Telegram account allows creating public channels.',
+        );
       }
     }
     return (chatId: chatId, username: username);
@@ -495,10 +497,8 @@ class TeDriveService {
   }
 
   /// Makes a public link for [file] and records it in the file's caption.
-  /// Photos and videos are sent as real photos and videos so the link shows
-  /// them in any browser; for that their contents are needed, given as
-  /// [localCopy] (a file path, or a blob: URL in the browser). Other files
-  /// reuse the copy already in Telegram, with no upload.
+  /// Uses instant server-side copy via Telegram (zero network bandwidth),
+  /// falling back to a direct media upload if needed.
   Future<String> createShareLink(
     int storageChatId,
     StoredFile file, {
@@ -508,45 +508,78 @@ class TeDriveService {
     final share = await _ensureShareChannel();
     int? blobId;
     try {
-      Json? input;
-      if (localCopy != null) {
-        if (kIsWeb) {
-          blobId = await WebTd.putBlob(localCopy);
-          input = {
-            '@type': 'inputFileBlob',
-            'name': file.name,
-            'blob_id': blobId,
-          };
-        } else {
-          input = {'@type': 'inputFileLocal', 'path': localCopy};
+      int? postId;
+
+      // 1. Instant server-side message copy via Telegram (fast, 0 download/upload)
+      try {
+        final forwarded = await td.request({
+          '@type': 'forwardMessages',
+          'chat_id': share.chatId,
+          'from_chat_id': storageChatId,
+          'message_ids': [file.messageId],
+          'send_copy': true,
+          'remove_caption': false,
+        });
+        final messages = (forwarded['messages'] as List?)?.cast<Json?>();
+        final first = messages?.firstWhere((m) => m != null, orElse: () => null);
+        if (first != null) {
+          postId = (first['id'] as int) >> 20;
+          try {
+            await td.request({
+              '@type': 'editMessageCaption',
+              'chat_id': share.chatId,
+              'message_id': first['id'] as int,
+              'caption': {'@type': 'formattedText', 'text': file.name},
+            });
+          } catch (_) {}
         }
+      } catch (_) {
+        // Fall back to direct media send below
       }
-      final caption = {'@type': 'formattedText', 'text': file.name};
-      final Json content = switch (file.kind) {
-        FileKind.image when input != null => {
-          '@type': 'inputMessagePhoto',
-          'photo': input,
-          'caption': caption,
-        },
-        FileKind.video when input != null => {
-          '@type': 'inputMessageVideo',
-          'video': input,
-          'supports_streaming': true,
-          'caption': caption,
-        },
-        _ => {
-          '@type': 'inputMessageDocument',
-          'document': await _remoteInputFile(file),
-          'caption': caption,
-        },
-      };
-      final sent = await _sendAndWait(
-        share.chatId,
-        content,
-        onProgress: onProgress,
-      );
-      final post = (sent['id'] as int) >> 20;
-      final link = 'https://t.me/${share.username}/$post';
+
+      // 2. Fallback: direct media message send
+      if (postId == null) {
+        Json? input;
+        if (localCopy != null) {
+          if (kIsWeb) {
+            blobId = await WebTd.putBlob(localCopy);
+            input = {
+              '@type': 'inputFileBlob',
+              'name': file.name,
+              'blob_id': blobId,
+            };
+          } else {
+            input = {'@type': 'inputFileLocal', 'path': localCopy};
+          }
+        }
+        final caption = {'@type': 'formattedText', 'text': file.name};
+        final Json content = switch (file.kind) {
+          FileKind.image when input != null => {
+            '@type': 'inputMessagePhoto',
+            'photo': input,
+            'caption': caption,
+          },
+          FileKind.video when input != null => {
+            '@type': 'inputMessageVideo',
+            'video': input,
+            'supports_streaming': true,
+            'caption': caption,
+          },
+          _ => {
+            '@type': 'inputMessageDocument',
+            'document': await _remoteInputFile(file),
+            'caption': caption,
+          },
+        };
+        final sent = await _sendAndWait(
+          share.chatId,
+          content,
+          onProgress: onProgress,
+        );
+        postId = (sent['id'] as int) >> 20;
+      }
+
+      final link = 'https://t.me/${share.username}/$postId';
       await _setCaption(
         storageChatId,
         file.messageId,

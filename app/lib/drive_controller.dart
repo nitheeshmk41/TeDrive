@@ -720,15 +720,10 @@ class DriveController extends ChangeNotifier {
     final current = _current(file);
     final existing = current.shareLink;
     if (existing != null) return existing;
-    // Photos and videos are re-sent as media so the link previews them,
-    // which needs the file's contents.
-    final needsCopy =
-        current.kind == FileKind.image || current.kind == FileKind.video;
-    final local = needsCopy ? await ensureLocal(current) : null;
     final link = await _service.createShareLink(
       _chatId!,
       _current(file),
-      localCopy: local,
+      localCopy: current.localPath,
     );
     _replace(_current(file).withShareLink(link));
     return link;

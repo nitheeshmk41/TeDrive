@@ -220,7 +220,7 @@ jobs:
           git checkout -q FETCH_HEAD
           New-Item -ItemType Directory build | Out-Null
           Set-Location build
-          cmake -A x64 "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 .. *> configure.log
+          cmake -A x64 "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" "-DCMAKE_POLICY_VERSION_MINIMUM=3.5.0" .. *> configure.log
           if ($LASTEXITCODE -ne 0) {
             Get-Content configure.log -Tail 25 | Write-Host
             $tail = (Get-Content configure.log -Tail 12) -join '%0A'
@@ -323,7 +323,7 @@ jobs:
         run: |
           flutter config --enable-macos-desktop
           flutter pub get
-          flutter build macos --release
+          flutter build macos --release --no-codesign
       - name: Package
         run: |
           app=$(ls -d app/build/macos/Build/Products/Release/*.app | head -1)

@@ -54,16 +54,16 @@ Phones run out of storage fast, and traditional cloud subscriptions charge you m
 
 ## 📦 Downloads (v1-beta)
 
-Download pre-built binaries from our [**GitHub Releases**](https://github.com/nitheeshmk41/TeDrive/releases):
+Download pre-built binaries from the [**GitHub v1-beta Release**](https://github.com/nitheeshmk41/TeDrive/releases/tag/v1-beta):
 
 | Platform | Download Package | Notes |
 | :--- | :--- | :--- |
-| **Android (Phone/Tablet)** | [`TeDrive-android-arm64.apk`](https://github.com/nitheeshmk41/TeDrive/releases) | Recommended for modern Android phones (ARM64) |
-| **Android (32-bit)** | [`TeDrive-android-arm32.apk`](https://github.com/nitheeshmk41/TeDrive/releases) | For older 32-bit Android devices |
-| **Windows** | [`TeDrive-windows-x64.zip`](https://github.com/nitheeshmk41/TeDrive/releases) | Windows 10 & 11 (Extract and run `TeDrive.exe`) |
-| **Web App** | [**tedrive.vercel.app**](https://tedrive.vercel.app) | Runs TDLib directly in browser via WebAssembly |
-| **Linux** | [`TeDrive-linux-x64.tar.gz`](https://github.com/nitheeshmk41/TeDrive/releases) | Ubuntu 22.04+, Debian, Fedora (Run `TeDrive/tedrive`) |
-| **macOS** | [`TeDrive-macos-arm64.zip`](https://github.com/nitheeshmk41/TeDrive/releases) | Apple Silicon (M1/M2/M3/M4) |
+| **Android (Phone/Tablet)** | [**TeDrive-v1-beta-android-arm64.apk**](https://github.com/nitheeshmk41/TeDrive/releases/download/v1-beta/TeDrive-v1-beta-android-arm64.apk) | Recommended for modern Android phones (ARM64) |
+| **Android (32-bit)** | [**TeDrive-v1-beta-android-arm32.apk**](https://github.com/nitheeshmk41/TeDrive/releases/download/v1-beta/TeDrive-v1-beta-android-arm32.apk) | For older 32-bit Android devices |
+| **Windows** | [**TeDrive-v1-beta-windows-x64.zip**](https://github.com/nitheeshmk41/TeDrive/releases/download/v1-beta/TeDrive-v1-beta-windows-x64.zip) | Windows 10 & 11 (Extract and run `TeDrive.exe`) |
+| **Web App** | [**Launch tedrive.vercel.app**](https://tedrive.vercel.app) | Runs TDLib directly in browser via WebAssembly |
+| **Linux** | [**TeDrive-v1-beta-linux-x64.tar.gz**](https://github.com/nitheeshmk41/TeDrive/releases/download/v1-beta/TeDrive-v1-beta-linux-x64.tar.gz) | Ubuntu 22.04+, Debian, Fedora (Run `TeDrive/tedrive`) |
+| **macOS** | [**TeDrive-v1-beta-macos-arm64.zip**](https://github.com/nitheeshmk41/TeDrive/releases/download/v1-beta/TeDrive-v1-beta-macos-arm64.zip) | Apple Silicon (M1/M2/M3/M4) |
 
 ---
 
