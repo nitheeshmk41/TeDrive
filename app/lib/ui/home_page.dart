@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:open_filex/open_filex.dart';
@@ -10,6 +11,8 @@ import '../backup_controller.dart';
 import '../device.dart' as device;
 import '../drive_controller.dart';
 import '../stored_file.dart';
+import '../local_files.dart';
+import '../td/web_bridge.dart';
 import '../tedrive_service.dart';
 import 'account_page.dart';
 import 'backup_page.dart';
@@ -71,7 +74,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   /// Uploads files that another app shared into TeDrive.
   Future<void> _takeSharedFiles() async {
-    if (!mounted || _drive.isDemo || _drive.loading) return;
+    if (!mounted || _drive.loading) return;
     final shared = await device.takeSharedFiles();
     if (shared.isEmpty || !mounted) return;
     for (final f in shared) {
@@ -121,20 +124,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
-  bool _demoBlocks() {
-    if (!_drive.isDemo) return false;
-    _toast('This is a demo with sample files, so there is nothing to open.');
-    return true;
-  }
-
   /// Returns a local path for [file]. If it has to be downloaded first, a
   /// progress dialog with a Cancel button is shown meanwhile. Null if the
   /// download was cancelled or failed.
   Future<String?> _fetch(StoredFile original, String verb) async {
-    if (_demoBlocks()) return null;
     final file = _latest(original);
     final local = file.localPath;
-    if (local != null && File(local).existsSync()) return local;
+    if (localExists(local)) return local;
     var dialogOpen = true;
     showDialog<void>(
       context: context,
@@ -168,10 +164,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // ------------------------------------------------------------ Actions
 
   Future<void> _pickAndUpload({String? folder}) async {
-    if (_drive.isDemo) {
-      _toast('Uploading needs the Android app and your own Telegram account.');
-      return;
-    }
     final picked = await FilePicker.pickFiles();
     if (picked.isEmpty) return;
     _drive.enqueue(picked, folder: folder);
@@ -185,7 +177,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   /// Opens a file: images, videos and audio inside the app, anything else
   /// in whichever app handles it.
   void _open(StoredFile file, List<StoredFile> siblings) {
-    if (_demoBlocks()) return;
     switch (file.kind) {
       case FileKind.image:
         final images = siblings.where((f) => f.kind == FileKind.image).toList();
@@ -245,9 +236,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   });
 
-  /// Desktop: copies the file into a folder the user picks.
+  /// Desktop: copies the file into a folder the user picks. Browser:
+  /// saves it to the downloads folder.
   Future<void> _saveCopy(StoredFile file) => _guard(() async {
-    if (_demoBlocks()) return;
+    if (kIsWeb) {
+      final url = await _fetch(file, 'Downloading');
+      if (url != null) WebTd.save(url, safeFileName(file.name));
+      return;
+    }
     final folder = await FilePicker.getDirectoryPath(
       dialogTitle: 'Save ${file.name} to…',
     );
@@ -264,6 +260,71 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     await File(path).copy(target.path);
     _toast('Saved to ${target.path}');
   });
+
+  /// Creates (after a warning) or shows the public link of a file.
+  Future<void> _shareLink(StoredFile original) async {
+    var link = _latest(original).shareLink;
+    if (link == null) {
+      final go = await _confirm(
+        title: 'Create a public link?',
+        body:
+            'Anyone who has the link can see and download '
+            '${_latest(original).name}, without signing in.\n\n'
+            'TeDrive copies the file into a public channel called '
+            '"TeDrive Shared" in your Telegram. Your other files stay '
+            'private. You can stop sharing at any time.',
+        action: 'Create link',
+      );
+      if (!go || !mounted) return;
+      var dialogOpen = true;
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const PopScope(
+          canPop: false,
+          child: AlertDialog(
+            content: Row(
+              children: [
+                SizedBox.square(
+                  dimension: 24,
+                  child: CircularProgressIndicator(strokeWidth: 3),
+                ),
+                SizedBox(width: 20),
+                Expanded(child: Text('Creating link…')),
+              ],
+            ),
+          ),
+        ),
+      ).then((_) => dialogOpen = false);
+      try {
+        link = await _drive.shareLink(original);
+      } catch (e) {
+        _toast(e is StateError ? e.message : 'Could not create the link: $e');
+        return;
+      } finally {
+        if (dialogOpen && mounted) {
+          Navigator.of(context, rootNavigator: true).pop();
+        }
+      }
+    }
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (_) => _ShareLinkDialog(
+        name: _latest(original).name,
+        link: link!,
+        onCopy: () {
+          Clipboard.setData(ClipboardData(text: link!));
+          _toast('Link copied');
+        },
+        onSend: () => SharePlus.instance.share(ShareParams(text: link!)),
+        onStop: () => _guard(() async {
+          await _drive.stopSharing(original);
+          _toast('Link removed. It no longer works.');
+        }),
+      ),
+    );
+  }
 
   Future<void> _rename(StoredFile file) async {
     final typed = await showDialog<String>(
@@ -302,7 +363,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   });
 
   Future<void> _verify(StoredFile file) async {
-    if (_demoBlocks()) return;
     final go = await _confirm(
       title: 'Check this file?',
       body:
@@ -474,10 +534,28 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   title: const Text('Share or send'),
                   onTap: () => run(_share),
                 ),
-                if (device.isDesktop)
+                ListTile(
+                  leading: Icon(
+                    file.shareLink == null ? Icons.add_link : Icons.link,
+                  ),
+                  title: Text(
+                    file.shareLink == null ? 'Create share link' : 'Share link',
+                  ),
+                  subtitle: file.shareLink == null
+                      ? null
+                      : Text(
+                          file.shareLink!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                  onTap: () => run(_shareLink),
+                ),
+                if (device.isDesktop || kIsWeb)
                   ListTile(
                     leading: const Icon(Icons.save_alt),
-                    title: const Text('Save a copy to this computer'),
+                    title: Text(
+                      kIsWeb ? 'Download' : 'Save a copy to this computer',
+                    ),
                     onTap: () => run(_saveCopy),
                   ),
                 ListTile(
@@ -508,7 +586,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     title: const Text('Keep on this device'),
                     onTap: () => run(_keepOffline),
                   ),
-                if (file.sha256 != null)
+                if (file.sha256 != null && !kIsWeb)
                   ListTile(
                     leading: const Icon(Icons.verified_outlined),
                     title: const Text('Check file integrity'),
@@ -609,12 +687,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           ];
           if (!tabs.contains(_tab)) _tab = _Tab.photos;
           final onBackup = _tab == _Tab.backup;
-          final content = Column(
-            children: [
-              if (_drive.isDemo) const _DemoBanner(),
-              Expanded(child: _tabBody()),
-            ],
-          );
+          final content = Column(children: [Expanded(child: _tabBody())]);
           return Scaffold(
             appBar: onBackup
                 ? AppBar(title: const Text('Phone backup'))
@@ -1062,34 +1135,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 }
 
 // ---------------------------------------------------------------- Widgets
-
-class _DemoBanner extends StatelessWidget {
-  const _DemoBanner();
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      width: double.infinity,
-      color: scheme.tertiaryContainer,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      child: Row(
-        children: [
-          Icon(Icons.science_outlined, color: scheme.onTertiaryContainer),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              'Demo with sample files. It is not connected to Telegram and '
-              'nothing can be opened or uploaded. Install the Android app to '
-              'use your own account.',
-              style: TextStyle(color: scheme.onTertiaryContainer),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 class _Detail extends StatelessWidget {
   const _Detail(this.label, this.value, {this.mono = false});
@@ -1743,4 +1788,90 @@ class _RenameDialogState extends State<_RenameDialog> {
       ),
     ],
   );
+}
+
+/// A file's public link, with copy, send and stop-sharing actions.
+class _ShareLinkDialog extends StatelessWidget {
+  const _ShareLinkDialog({
+    required this.name,
+    required this.link,
+    required this.onCopy,
+    required this.onSend,
+    required this.onStop,
+  });
+
+  final String name;
+  final String link;
+  final VoidCallback onCopy;
+  final VoidCallback onSend;
+  final VoidCallback onStop;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    void close(VoidCallback action) {
+      Navigator.pop(context);
+      action();
+    }
+
+    return AlertDialog(
+      title: const Text('Share link'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Anyone with this link can see and download $name.',
+            style: theme.textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: SelectableText(
+              link,
+              style: theme.textTheme.bodyLarge?.copyWith(
+                color: theme.colorScheme.primary,
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(minimumSize: const Size(0, 48)),
+                  onPressed: () => close(onCopy),
+                  icon: const Icon(Icons.copy),
+                  label: const Text('Copy'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => close(onSend),
+                  icon: const Icon(Icons.send_outlined),
+                  label: const Text('Send'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          style: TextButton.styleFrom(foregroundColor: theme.colorScheme.error),
+          onPressed: () => close(onStop),
+          child: const Text('Stop sharing'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Done'),
+        ),
+      ],
+    );
+  }
 }

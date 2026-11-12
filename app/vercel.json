@@ -1,23 +1,20 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
-  "installCommand": "if [ -d flutter ]; then git -C flutter pull; else git clone https://github.com/flutter/flutter.git --branch stable --depth 1; fi && flutter/bin/flutter config --enable-web --no-analytics && flutter/bin/flutter pub get",
-  "buildCommand": "flutter/bin/flutter build web --release --no-tree-shake-icons",
+  "installCommand": "if [ -d flutter ]; then git -C flutter pull; else git clone https://github.com/flutter/flutter.git --branch 3.47.7 --depth 1; fi && flutter/bin/flutter config --enable-web --no-analytics && flutter/bin/flutter pub get",
+  "buildCommand": "flutter/bin/flutter build web --release --no-tree-shake-icons && bash tool/fetch_tdweb.sh build/web",
   "outputDirectory": "build/web",
   "headers": [
     {
       "source": "/(.*)",
       "headers": [
         { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "Referrer-Policy", "value": "no-referrer" }
+        { "key": "Referrer-Policy", "value": "no-referrer" },
+        { "key": "X-Frame-Options", "value": "DENY" }
       ]
     },
     {
-      "source": "/index.html",
-      "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
-    },
-    {
-      "source": "/flutter_bootstrap.js",
+      "source": "/(index.html|flutter_bootstrap.js|tedrive_td.js)",
       "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
     }
   ]

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../device.dart' as device;
@@ -31,8 +32,6 @@ class _AccountPageState extends State<AccountPage> {
   int? _cacheBytes;
   bool _clearing = false;
 
-  bool get _demo => widget.drive.isDemo;
-
   @override
   void initState() {
     super.initState();
@@ -40,13 +39,6 @@ class _AccountPageState extends State<AccountPage> {
   }
 
   Future<void> _load() async {
-    if (_demo) {
-      setState(() {
-        _name = 'Demo account';
-        _cacheBytes = 0;
-      });
-      return;
-    }
     try {
       final me = await widget.service.me();
       final name = [
@@ -75,7 +67,7 @@ class _AccountPageState extends State<AccountPage> {
       final after = await widget.service.cacheBytes();
       if (!mounted) return;
       setState(() => _cacheBytes = after);
-      final freed = before - after;
+      final freed = before - (after ?? 0);
       messenger.showSnackBar(
         SnackBar(
           content: Text(
@@ -232,7 +224,9 @@ class _AccountPageState extends State<AccountPage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            _cacheBytes == null
+                            kIsWeb
+                                ? 'Kept in this browser'
+                                : _cacheBytes == null
                                 ? 'Checking…'
                                 : '${formatBytes(_cacheBytes!)} of downloaded '
                                       'copies and previews',
@@ -240,25 +234,33 @@ class _AccountPageState extends State<AccountPage> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            'Files you open are kept for a while so they '
-                            'open quickly. TeDrive keeps this under 1 GB by '
-                            'itself, and everything stays in Telegram.'
-                            '${device.isAndroid && stats.localCount > 0 ? '\n\n${stats.localCount} backed-up originals are also still in your gallery. Use Backup, then Free up space, to remove those.' : ''}',
+                            kIsWeb
+                                ? 'Files you open are kept in this browser\'s '
+                                      'storage so they open quickly. Logging '
+                                      'out removes them. Everything stays in '
+                                      'Telegram.'
+                                : 'Files you open are kept for a while so '
+                                      'they open quickly. TeDrive keeps this '
+                                      'under 1 GB by itself, and everything '
+                                      'stays in Telegram.'
+                                      '${device.isAndroid && stats.localCount > 0 ? '\n\n${stats.localCount} backed-up originals are also still in your gallery. Use Backup, then Free up space, to remove those.' : ''}',
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: theme.colorScheme.onSurfaceVariant,
                             ),
                           ),
-                          const SizedBox(height: 12),
-                          OutlinedButton.icon(
-                            onPressed:
-                                _demo || _clearing || (_cacheBytes ?? 0) == 0
-                                ? null
-                                : _clearCache,
-                            icon: const Icon(Icons.cleaning_services_outlined),
-                            label: Text(
-                              _clearing ? 'Clearing…' : 'Clear downloads now',
+                          if (!kIsWeb) const SizedBox(height: 12),
+                          if (!kIsWeb)
+                            OutlinedButton.icon(
+                              onPressed: _clearing || (_cacheBytes ?? 0) == 0
+                                  ? null
+                                  : _clearCache,
+                              icon: const Icon(
+                                Icons.cleaning_services_outlined,
+                              ),
+                              label: Text(
+                                _clearing ? 'Clearing…' : 'Clear downloads now',
+                              ),
                             ),
-                          ),
                         ],
                       ),
                     ),
@@ -273,21 +275,20 @@ class _AccountPageState extends State<AccountPage> {
                           title: const Text('About TeDrive'),
                           onTap: widget.onAbout,
                         ),
-                        if (!_demo)
-                          ListTile(
-                            leading: Icon(
-                              Icons.logout,
-                              color: theme.colorScheme.error,
-                            ),
-                            title: Text(
-                              'Log out',
-                              style: TextStyle(color: theme.colorScheme.error),
-                            ),
-                            onTap: () {
-                              Navigator.pop(context);
-                              widget.onLogOut();
-                            },
+                        ListTile(
+                          leading: Icon(
+                            Icons.logout,
+                            color: theme.colorScheme.error,
                           ),
+                          title: Text(
+                            'Log out',
+                            style: TextStyle(color: theme.colorScheme.error),
+                          ),
+                          onTap: () {
+                            Navigator.pop(context);
+                            widget.onLogOut();
+                          },
+                        ),
                       ],
                     ),
                   ),

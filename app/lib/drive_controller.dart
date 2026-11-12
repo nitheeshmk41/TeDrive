@@ -115,9 +115,6 @@ class DriveController extends ChangeNotifier {
   late final MediaServer _media = MediaServer(_service);
   Timer? _catalogueTimer;
 
-  /// True in the web demo, where files are samples and cannot be opened.
-  bool get isDemo => _service.isDemo;
-
   bool loading = true;
   String? error;
   int? _chatId;
@@ -155,7 +152,7 @@ class DriveController extends ChangeNotifier {
 
   /// Keeps the list Android's file picker shows in step with the drive.
   void _scheduleCatalogue() {
-    if (isDemo || loading) return;
+    if (loading) return;
     _catalogueTimer ??= Timer(const Duration(seconds: 2), () {
       _catalogueTimer = null;
       if (!_disposed) writePickerCatalogue(files, _thumbPaths);
@@ -250,7 +247,7 @@ class DriveController extends ChangeNotifier {
   /// Forgets local copies that are no longer on the phone, for example
   /// after "free up space" removed the originals.
   void recheckLocalPaths() {
-    if (isDemo) return;
+    if (kIsWeb) return;
     files = [
       for (final f in files)
         if (f.localPath != null && !File(f.localPath!).existsSync())
@@ -284,7 +281,6 @@ class DriveController extends ChangeNotifier {
 
   /// Keeps downloaded copies on this device under [maxBytes].
   Future<void> trimCache(int maxBytes) async {
-    if (isDemo) return;
     await _service.trimCache(maxBytes);
     recheckLocalPaths();
   }
@@ -407,6 +403,7 @@ class DriveController extends ChangeNotifier {
   }
 
   Future<void> _runUpload(UploadTask task) async {
+    if (kIsWeb) return _runWebUpload(task);
     final limit = _premium ? maxUploadBytesPremium : maxUploadBytes;
     void fail(String why) {
       task
@@ -499,7 +496,7 @@ class DriveController extends ChangeNotifier {
       _notify();
       final stored = await _service.upload(
         _chatId!,
-        path,
+        {'@type': 'inputFileLocal', 'path': path},
         sha,
         folder: task.folder,
         taken: task.taken,
@@ -561,6 +558,79 @@ class DriveController extends ChangeNotifier {
     }
   }
 
+  /// Uploads a file picked in the browser. There is no file system there,
+  /// so it is hashed as a stream and handed to Telegram's library as a Blob.
+  Future<void> _runWebUpload(UploadTask task) async {
+    final source = task.source!;
+    final limit = _premium ? maxUploadBytesPremium : maxUploadBytes;
+    task
+      ..status = UploadStatus.preparing
+      ..progress = null;
+    _notify();
+    try {
+      final size = task.size ?? await source.length() ?? 0;
+      task.size = size;
+      if (size == 0) throw StateError('The file is empty');
+      if (size > limit) {
+        throw StateError('Larger than Telegram\'s ${formatBytes(limit)} limit');
+      }
+      final sha = await sha256OfStream(source.readAsByteStream());
+      task.sha = sha;
+      if (task._cancelRequested) throw UploadCancelled();
+      if (files.any((f) => f.sha256 == sha)) {
+        task
+          ..status = UploadStatus.skipped
+          ..message = 'Already in your drive';
+        return;
+      }
+      task
+        ..status = UploadStatus.uploading
+        ..progress = 0;
+      _notify();
+      final stored = await _service.uploadBlob(
+        _chatId!,
+        source.uri.toString(),
+        task.name,
+        sha,
+        folder: task.folder,
+        onStarted: (id) {
+          task._tempMessageId = id;
+          if (task._cancelRequested) _service.cancelUpload(_chatId!, id);
+        },
+        onProgress: (done, total) {
+          if (total > 0) {
+            task.progress = done / total;
+            _notify();
+          }
+        },
+      );
+      files = sortNewestFirst([
+        stored.withLocalPath(null),
+        ...files.where((f) => f.messageId != stored.messageId),
+      ]);
+      task
+        ..status = UploadStatus.done
+        ..progress = 1;
+    } on UploadCancelled {
+      task.status = UploadStatus.cancelled;
+    } on TdError catch (e) {
+      task
+        ..status = UploadStatus.failed
+        ..message = e.message;
+    } on StateError catch (e) {
+      task
+        ..status = UploadStatus.failed
+        ..message = e.message;
+    } catch (e) {
+      task
+        ..status = UploadStatus.failed
+        ..message = '$e';
+    } finally {
+      task._finish();
+      _notify();
+    }
+  }
+
   // ---- Downloads ----
 
   bool isDownloading(StoredFile file) => downloads.containsKey(file.messageId);
@@ -581,6 +651,7 @@ class DriveController extends ChangeNotifier {
     try {
       final path = await _service.download(
         file.fileId,
+        mime: mimeOf(file.name),
         onProgress: (done, total) {
           if (total > 0 && downloads.containsKey(id)) {
             downloads[id] = done / total;
@@ -617,6 +688,11 @@ class DriveController extends ChangeNotifier {
   Future<bool?> verify(StoredFile file) async {
     final expected = file.sha256;
     if (expected == null) return null;
+    if (kIsWeb) {
+      throw StateError(
+        'The integrity check runs in the phone and desktop apps.',
+      );
+    }
     final local = _current(file).localPath;
     if (local != null &&
         !_service.isCached(local) &&
@@ -639,7 +715,38 @@ class DriveController extends ChangeNotifier {
   }
 
   /// Permanently deletes the file from Telegram and from this phone's cache.
+  /// Creates a public link for [file] (or returns the existing one).
+  Future<String> shareLink(StoredFile file) async {
+    final current = _current(file);
+    final existing = current.shareLink;
+    if (existing != null) return existing;
+    // Photos and videos are re-sent as media so the link previews them,
+    // which needs the file's contents.
+    final needsCopy =
+        current.kind == FileKind.image || current.kind == FileKind.video;
+    final local = needsCopy ? await ensureLocal(current) : null;
+    final link = await _service.createShareLink(
+      _chatId!,
+      _current(file),
+      localCopy: local,
+    );
+    _replace(_current(file).withShareLink(link));
+    return link;
+  }
+
+  /// Deletes the public copy, so the link stops working.
+  Future<void> stopSharing(StoredFile file) async {
+    await _service.removeShareLink(_chatId!, _current(file));
+    _replace(_current(file).withShareLink(null));
+  }
+
   Future<void> delete(StoredFile file) async {
+    if (_current(file).shareLink != null) {
+      // Best effort: the public copy should not outlive the file.
+      await _service
+          .removeShareLink(_chatId!, _current(file))
+          .catchError((_) {});
+    }
     await _service.removeOfflineCopy(file.fileId);
     await _service.deleteFromDrive(_chatId!, [file.messageId]);
     files = files.where((f) => f.messageId != file.messageId).toList();

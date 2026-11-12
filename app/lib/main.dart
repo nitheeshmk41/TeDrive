@@ -1,6 +1,7 @@
 // TeDrive: a personal cloud drive that stores files in the user's own
 // Telegram account.
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import 'provider_bridge.dart';
@@ -55,12 +56,15 @@ class TeDriveApp extends StatelessWidget {
     'waitPassword' => SignInPage(service: service, state: state),
     'starting' => const SplashPage(text: 'Connecting to Telegram…'),
     'loggingOut' || 'closing' => const SplashPage(text: 'Please wait…'),
-    'libraryMissing' => const ProblemPage(
+    'libraryMissing' => ProblemPage(
       title: 'Telegram library not found',
-      text:
-          'This build of TeDrive does not include Telegram\'s library '
-          '(tdjson), so it cannot connect. The Android app has it built in. '
-          'Desktop builds need tdjson placed next to the program.',
+      text: kIsWeb
+          ? 'Telegram\'s library could not be loaded in this browser. '
+                'Reload the page, or try a recent Chrome, Edge, Firefox or '
+                'Safari.'
+          : 'This copy of TeDrive is missing Telegram\'s library (tdjson), '
+                'so it cannot connect. Download TeDrive again from the '
+                'releases page.',
     ),
     'error' => ProblemPage(
       title: 'TeDrive could not start',

@@ -50,7 +50,11 @@ class _PlayerPageState extends State<PlayerPage> {
     try {
       final local = widget.file.localPath;
       final VideoPlayerController player;
-      if (!kIsWeb && local != null && File(local).existsSync()) {
+      if (kIsWeb) {
+        // The browser plays the downloaded copy (a blob: URL).
+        final url = await widget.drive.ensureLocal(widget.file);
+        player = VideoPlayerController.networkUrl(Uri.parse(url));
+      } else if (local != null && File(local).existsSync()) {
         player = VideoPlayerController.file(File(local));
       } else {
         player = VideoPlayerController.networkUrl(

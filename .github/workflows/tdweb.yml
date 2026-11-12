@@ -1,0 +1,97 @@
+name: Build TDLib for the web
+
+# Compiles TDLib (Telegram's client library) to WebAssembly, wraps it in
+# Telegram's tdweb JavaScript package, and publishes the result as a release
+# asset. The web app downloads that asset when it is built (see
+# app/tool/fetch_tdweb.sh), so the binaries never live in the repository.
+#
+# It only has to run again when TDLIB_COMMIT changes: start it from the
+# Actions tab (Run workflow). It takes about an hour.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  # Same TDLib version (1.8.15) as the Android and desktop apps.
+  TDLIB_COMMIT: 8e1a7dbac29cea82292f33d6c11c43e13ffcf658
+  TDWEB_TAG: tdweb-1.8.15
+
+jobs:
+  tdweb:
+    name: TDLib to WebAssembly
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    steps:
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake gperf libssl-dev zlib1g-dev
+      - name: Set up Emscripten 3.1.1
+        run: |
+          # The version TDLib's web build is known to work with.
+          git clone -q --depth 1 https://github.com/emscripten-core/emsdk.git "$HOME/emsdk"
+          cd "$HOME/emsdk"
+          ./emsdk install 3.1.1
+          ./emsdk activate 3.1.1
+      - uses: actions/setup-node@v4
+        with:
+          # tdweb uses webpack 4, which needs Node 16.
+          node-version: '16'
+      - name: Get TDLib
+        run: |
+          git init -q td && cd td
+          git remote add origin https://github.com/tdlib/td.git
+          git fetch -q --depth 1 origin "$TDLIB_COMMIT"
+          git checkout -q FETCH_HEAD
+      - name: Build OpenSSL for WebAssembly
+        working-directory: td/example/web
+        run: |
+          source "$HOME/emsdk/emsdk_env.sh"
+          ./build-openssl.sh
+      - name: Build TDLib for WebAssembly
+        working-directory: td/example/web
+        run: |
+          source "$HOME/emsdk/emsdk_env.sh"
+          OPENSSL_ROOT=$(realpath ./build/crypto)
+          mkdir -p build/generate build/wasm
+          (cd build/generate && cmake ../../../..)
+          (cd build/wasm && emcmake cmake -DCMAKE_BUILD_TYPE=MinSizeRel \
+            -DOPENSSL_FOUND=1 \
+            -DOPENSSL_ROOT_DIR="$OPENSSL_ROOT" \
+            -DOPENSSL_INCLUDE_DIR="$OPENSSL_ROOT/include" \
+            -DOPENSSL_CRYPTO_LIBRARY="$OPENSSL_ROOT/lib/libcrypto.a" \
+            -DOPENSSL_SSL_LIBRARY="$OPENSSL_ROOT/lib/libssl.a" \
+            -DOPENSSL_LIBRARIES="$OPENSSL_ROOT/lib/libssl.a;$OPENSSL_ROOT/lib/libcrypto.a" \
+            -DOPENSSL_VERSION="1.1.0l" ../../../..)
+          cmake --build build/generate --target prepare_cross_compiling -j 4
+          # Large translation units need a lot of memory, so keep -j modest.
+          cmake --build build/wasm --target td_wasm -j 3
+      - name: Package tdweb
+        working-directory: td/example/web
+        run: |
+          dest=tdweb/src/prebuilt/release
+          mkdir -p "$dest"
+          cp build/wasm/td_wasm.js build/wasm/td_wasm.wasm "$dest/"
+          # Only the WebAssembly build is used (every current browser has it).
+          # The old asm.js fallback is replaced by a stub so the package builds.
+          echo "module.exports = function () { throw new Error('asm.js build not included'); };" > "$dest/td_asmjs.js"
+          : > "$dest/td_asmjs.js.mem"
+          cd tdweb
+          npm install --no-save
+          npm run build
+          ls -la dist
+          tar -C dist -czf "$GITHUB_WORKSPACE/tdweb.tar.gz" .
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TDWEB_TAG }}
+          target_commitish: ${{ github.sha }}
+          name: TDLib 1.8.15 for the web (build dependency)
+          prerelease: true
+          make_latest: false
+          files: tdweb.tar.gz
+          body: |
+            Not an app release. This is Telegram's TDLib 1.8.15 compiled to WebAssembly (the tdweb package), used when building the TeDrive web app.
+            Built from https://github.com/tdlib/td/tree/${{ env.TDLIB_COMMIT }} by `.github/workflows/tdweb.yml`.

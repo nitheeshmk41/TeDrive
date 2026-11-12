@@ -1,114 +1,125 @@
+<div align="center">
+
+<img src="app/web/icons/Icon-512.png" alt="TeDrive logo" width="128" height="128">
+
 # TeDrive
 
-> Your personal cloud, powered by Telegram.
+**Your personal cloud, powered by Telegram.**
 
-TeDrive turns a private channel in your own Telegram account into a cloud drive and photo library. Files go straight from your device to Telegram. There is no TeDrive server, no subscription, and nothing to host.
+A cloud drive and photo library that keeps your files in a private channel of your own Telegram account.<br>
+No TeDrive server. No subscription. Nothing to host.
 
-## What it does
+[**Download**](https://github.com/nitheeshmk41/TeDrive/releases) · [**Open in your browser**](https://tedrive.vercel.app) · [How it works](#how-it-works)
 
-- **Phone backup.** Backs up the photo and video albums you choose (Camera, WhatsApp Images, Screenshots and so on), on Wi-Fi only by default, and keeps going in the background.
-- **Add from anywhere.** Select photos in your gallery, tap Share and choose TeDrive. Or use the Upload button for any file.
-- **Free up space.** Removes photos and videos from the phone once Telegram confirms it holds a copy with the same SHA-256 fingerprint and size.
-- **Photos, Albums and Files.** A gallery grouped day by day by when each photo was taken, albums, and a file list with search, filters and sorting.
-- **Preview without downloading.** Photos open in a zoomable viewer. Videos and audio stream from Telegram and start playing before the download finishes.
-- **Rename.** Give any file a new name. It shows on all your devices.
-- **Share anywhere.** Send any file to WhatsApp or another app. TeDrive also appears in Android's file picker, so apps that attach documents can pick straight from the drive.
-- **One drive on every device.** Sign in with the same Telegram account on several devices and they all use the same channel. A file added, renamed, moved or deleted on one shows up on the others, and each file records which device uploaded it.
-- **Light on storage.** Files you open are cached, and the cache is kept under 1 GB automatically. The account page shows what the drive holds by type and by device.
-- **Large files.** Up to 2 GB per file (4 GB with Telegram Premium).
+![Android](https://img.shields.io/badge/Android-ready-3DDC84?logo=android&logoColor=white)
+![Web](https://img.shields.io/badge/Web-beta-1677F0?logo=googlechrome&logoColor=white)
+![Windows](https://img.shields.io/badge/Windows-beta-0078D4?logo=windows&logoColor=white)
+![Linux](https://img.shields.io/badge/Linux-beta-FCC624?logo=linux&logoColor=black)
+![macOS](https://img.shields.io/badge/macOS-beta-000000?logo=apple&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-blue)
 
-## Platforms
+</div>
 
-| Platform | Status |
+---
+
+## Why TeDrive
+
+Phones fill up. Cloud storage costs money every month. Telegram already stores files for free, up to 2 GB each, on every device you own.
+
+TeDrive turns that into a proper drive: a gallery that looks like your phone's, albums, search, sharing, and automatic backup, with everything living in your own Telegram account.
+
+## Features
+
+| | |
 | :--- | :--- |
-| Android | Supported and tested. |
-| Windows, Linux, macOS | First builds. Browse, upload, download, rename and organise work through the same code as Android, but they have had little real-world testing. Phone backup, the system file picker and the built-in video player are Android-only; on desktop, videos open in your usual player. |
-| Web | Demo only. It shows sample files and does not connect to Telegram. |
+| 📸 **Phone backup** | Backs up the albums you choose (Camera, WhatsApp Images, Screenshots and so on), on Wi-Fi only by default, in the background. |
+| 🧹 **Free up space** | Removes photos and videos from the phone once Telegram confirms it holds an identical copy (same SHA-256 fingerprint and size). |
+| 🖼️ **A real gallery** | Photos grouped day by day by when they were taken, albums, and a file list with search, filters and sorting. |
+| ▶️ **Preview without downloading** | Photos open in a zoomable viewer. Videos and audio stream and start playing straight away. |
+| 🔗 **Share links** | Create a public link for any file and send it to anyone, even people without Telegram. Stop sharing whenever you like. |
+| 📤 **Share anywhere** | Send any file to WhatsApp or any other app. On Android, TeDrive also appears in the system file picker. |
+| 📥 **Add from anywhere** | Select photos in your gallery, tap Share and choose TeDrive, or use Upload. |
+| ✏️ **Rename and organise** | Rename files and move them between albums. Changes show on every device. |
+| 💻 **One drive everywhere** | Sign in on your phones, your computer and the web with the same account and see the same files, live. Each file shows which device uploaded it. |
+| 🪶 **Light on storage** | Files you open are cached and the cache is kept small automatically. The account page shows what your drive holds by type and by device. |
 
-Downloads are on the [releases page](https://github.com/nitheeshmk41/TeDrive/releases).
+## Download
+
+Get the latest version from the [**releases page**](https://github.com/nitheeshmk41/TeDrive/releases), or use it in the browser at [**tedrive.vercel.app**](https://tedrive.vercel.app).
+
+| Platform | File | Status |
+| :--- | :--- | :--- |
+| Android | `android-arm64.apk` (most phones) or `android-arm32.apk` | Ready |
+| Web | [tedrive.vercel.app](https://tedrive.vercel.app) | Beta |
+| Windows 10 and 11 | `windows-x64.zip`, then run `TeDrive.exe` | Beta |
+| Linux | `linux-x64.tar.gz`, then run `TeDrive/tedrive` | Beta |
+| macOS (Apple Silicon) | `macos-arm64.zip` | Beta. Not notarised: right-click the app and choose **Open** the first time. |
+
+Phone backup, free up space and the system file picker are Android features. Everything else works on every platform.
 
 ## Getting started
 
-You need a Telegram account and a free Telegram API ID and hash.
+You need a Telegram account and a free Telegram API ID and hash. It takes about two minutes.
 
-1. Install TeDrive from the releases page.
-2. Get your API ID and hash:
-   1. Open [my.telegram.org](https://my.telegram.org) and sign in with your phone number.
-   2. Choose **API development tools**.
-   3. Create an app with any title and short name.
-   4. Copy **App api_id** and **App api_hash**.
-3. Open TeDrive, enter the two values, then sign in with your phone number.
+1. Open [my.telegram.org](https://my.telegram.org) and sign in with your phone number.
+2. Choose **API development tools**.
+3. Create an app with any title and short name (for example `TeDrive`).
+4. Copy **App api_id** and **App api_hash**.
+5. Open TeDrive, enter the two values, then sign in with your phone number and the code Telegram sends you.
 
 Keep the API hash private. Use the same phone number on every device to see the same files.
 
 ## How it works
 
-TeDrive is a Telegram client built on [TDLib](https://core.telegram.org/tdlib), Telegram's official client library. It signs in as you, creates a private channel called `TeDrive Storage`, and stores each file as a message in it.
+```
+ Your phone ──┐
+ Your laptop ─┼──►  Telegram  ──►  "TeDrive Storage"  (a private channel in your account)
+ Your browser ┘                    "TeDrive Shared"   (public, only for files you share)
+```
 
-Everything TeDrive knows about a file is written in the message caption (SHA-256 fingerprint, album, original date, uploading device, custom name). The whole catalogue can therefore be rebuilt from the channel on any device, with no separate database.
+- **TeDrive is a Telegram client**, built on [TDLib](https://core.telegram.org/tdlib), Telegram's official client library. It signs in as you and talks to Telegram directly. In the browser, TDLib runs as WebAssembly.
+- **Each file is a message** in a private channel called `TeDrive Storage`.
+- **Everything TeDrive knows about a file is in the message caption**: fingerprint, album, original date, uploading device, custom name and share link. The whole drive can be rebuilt from the channel on any device, so there is no separate database to lose.
+- **Share links** copy the file into a second, public channel (`TeDrive Shared`). The storage channel always stays private.
+- **Your API credentials and session stay on your device.** On Android the session database is encrypted with a key held in the Android Keystore.
 
-Your Telegram API credentials and session stay on your device. On Android the session database is encrypted with a key held in the Android Keystore.
+## Good to know
 
-## Things to know
-
-- **Keep a second copy of anything irreplaceable.** Telegram is not a contracted storage service. Accounts can be limited and policies can change.
+- **Keep a second copy of anything irreplaceable.** Telegram is not a contracted storage service, and accounts and policies can change.
 - **Files are not end-to-end encrypted.** They are stored like any other Telegram cloud message.
-- **Automatic backup covers photos and videos.** Other file types are added with Upload or Share.
-- **Backup runs while the app is open or in the background.** It does not start by itself after the phone restarts.
-- **The macOS app is not notarised.** Right-click it and choose Open the first time.
-- **Linux** needs GTK 3, OpenSSL 3 and a keyring service (GNOME Keyring or KWallet).
+- **Anyone with a share link can open that file.** Use Stop sharing to remove the public copy.
+- **Automatic backup covers photos and videos**, while the app is open or in the background. It does not restart by itself after the phone reboots.
+- **Linux** needs GTK 3 and a keyring service (GNOME Keyring or KWallet).
 
 ## Development
 
-The Flutter project is in [`app/`](app).
+The Flutter app is in [`app/`](app).
 
 ```bash
 cd app
 flutter pub get
-flutter run                 # on a connected Android phone
-dart test                   # unit tests
-flutter build web --release --no-tree-shake-icons   # the web demo
+flutter run          # on a connected Android phone
+dart test            # unit tests
 ```
-
-Layout of `app/lib`:
 
 | Path | What is in it |
 | :--- | :--- |
-| `td/` | The TDLib binding, and the sample-data backend used by the web demo |
-| `tedrive_service.dart` | Sign-in, the storage channel, uploads, downloads |
-| `drive_controller.dart` | The file list, upload queue and cross-device updates |
-| `backup_controller.dart`, `backup_plan.dart` | Phone backup and free up space |
-| `stored_file.dart` | The file model and caption format |
-| `media_server.dart` | Local streaming for the video and audio player |
-| `ui/` | Screens |
+| `app/lib/td/` | The TDLib binding: FFI on Android and desktop, tdweb in the browser |
+| `app/lib/tedrive_service.dart` | Sign-in, channels, uploads, downloads, share links |
+| `app/lib/drive_controller.dart` | The file list, upload queue and live updates from other devices |
+| `app/lib/backup_controller.dart`, `backup_plan.dart` | Phone backup and free up space |
+| `app/lib/stored_file.dart` | The file model and caption format |
+| `app/lib/ui/` | Screens |
+| `app/android/app/src/main/kotlin/` | Android: media library, background service, file picker, sharing |
 
-The Android-specific code (media library, background service, file picker integration, sharing) is in `app/android/app/src/main/kotlin`.
+**Builds.** [`release.yml`](.github/workflows/release.yml) builds Android, Windows, Linux, macOS and the web app on every push to `main`, compiling TDLib for desktop from source. Pushing a tag such as `v1.0.0` publishes a release. [`tdweb.yml`](.github/workflows/tdweb.yml) compiles TDLib to WebAssembly for the web app.
 
-### Builds and releases
+**Web hosting.** `app/vercel.json` builds and hosts the web app on Vercel. Import the repository and set **Root Directory** to `app`.
 
-[`.github/workflows/release.yml`](.github/workflows/release.yml) builds every platform on each push to `main`. Pushing a tag such as `v1.0.0` also publishes the builds as a GitHub release.
-
-The Android app includes a prebuilt TDLib 1.8.15. For Windows, Linux and macOS the workflow compiles the same TDLib version from source and caches it, so the first build takes much longer than later ones.
-
-### Signing the Android app
-
-Release APKs should be signed with one long-lived key, otherwise a new version cannot be installed over an old one. The workflow signs with your key when these repository secrets exist (Settings, Secrets and variables, Actions):
-
-| Secret | Value |
-| :--- | :--- |
-| `ANDROID_KEYSTORE_BASE64` | The keystore file, base64-encoded |
-| `ANDROID_KEYSTORE_PASSWORD` | The keystore password |
-| `ANDROID_KEY_ALIAS` | The key alias |
-| `ANDROID_KEY_PASSWORD` | The key password |
-
-Without them the APK is signed with a throwaway debug key and the workflow prints a warning. Keep the keystore and its passwords backed up somewhere safe: if they are lost, existing installs can no longer be updated.
-
-### Hosting the web demo on Vercel
-
-`app/vercel.json` builds the demo on Vercel. Import the repository in Vercel and set **Root Directory** to `app`. No environment variables are needed.
+**Android signing.** Release APKs are signed with your key when the repository secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD` are set; otherwise with a throwaway debug key. Keep the keystore backed up: without it, installed copies cannot be updated.
 
 ## Licence
 
-MIT.
+[MIT](LICENSE).
 
 TeDrive is an independent project. It uses the Telegram API and is not made or endorsed by Telegram.

@@ -87,9 +87,8 @@ class _FileThumbState extends State<FileThumb> {
       builder: (context, snapshot) {
         final path = snapshot.data;
         if (path == null) return placeholder;
-        if (kIsWeb) return placeholder;
-        return Image.file(
-          File(path),
+        return localImage(
+          path,
           fit: widget.fit,
           cacheWidth: 360,
           gaplessPlayback: true,
@@ -366,16 +365,11 @@ class _FullImageState extends State<_FullImage> {
     );
     final path = _path;
     if (path != null) {
-      if (kIsWeb) {
-        return const Center(
-          child: Icon(Icons.image, size: 96, color: Colors.white54),
-        );
-      }
       return InteractiveViewer(
         maxScale: 6,
         child: Center(
-          child: Image.file(
-            File(path),
+          child: localImage(
+            path,
             fit: BoxFit.contain,
             gaplessPlayback: true,
             errorBuilder: (_, _, _) => const Column(
@@ -438,3 +432,27 @@ class _FullImageState extends State<_FullImage> {
     );
   }
 }
+
+/// An image from a downloaded copy: a file on phones and computers, a
+/// blob: URL in the browser.
+Widget localImage(
+  String path, {
+  BoxFit? fit,
+  int? cacheWidth,
+  bool gaplessPlayback = false,
+  ImageErrorWidgetBuilder? errorBuilder,
+}) => kIsWeb
+    ? Image.network(
+        path,
+        fit: fit,
+        cacheWidth: cacheWidth,
+        gaplessPlayback: gaplessPlayback,
+        errorBuilder: errorBuilder,
+      )
+    : Image.file(
+        File(path),
+        fit: fit,
+        cacheWidth: cacheWidth,
+        gaplessPlayback: gaplessPlayback,
+        errorBuilder: errorBuilder,
+      );
