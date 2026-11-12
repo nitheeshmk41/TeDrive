@@ -15,6 +15,7 @@
     <application
         android:label="TeDrive"
         android:requestLegacyExternalStorage="true"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:allowBackup="false"
         android:fullBackupContent="false"
         android:name="${applicationName}"
@@ -41,6 +42,27 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- Hands files to other apps when sharing or opening them. -->
+        <provider
+            android:name=".TeDriveFileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/tedrive_file_paths" />
+        </provider>
+        <!-- Shows the drive in Android's file picker (used by WhatsApp, Gmail...). -->
+        <provider
+            android:name=".TeDriveDocumentsProvider"
+            android:authorities="${applicationId}.documents"
+            android:exported="true"
+            android:grantUriPermissions="true"
+            android:permission="android.permission.MANAGE_DOCUMENTS">
+            <intent-filter>
+                <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
+            </intent-filter>
+        </provider>
         <service
             android:name=".BackupService"
             android:exported="false"

@@ -1,8 +1,7 @@
 import 'package:tedrive/stored_file.dart';
 import 'package:test/test.dart';
 
-const _sha =
-    '383c77bfba9daab340231916497249bda3c31ea2ae72a3fdf67d61dd42bfdd66';
+const _sha = '383c77bfba9daab340231916497249bda3c31ea2ae72a3fdf67d61dd42bfdd66';
 
 Json _file({
   int id = 7,
@@ -63,9 +62,8 @@ void main() {
         isNull,
       );
       expect(
-        StoredFile.fromMessage(
-          _documentMessage(caption: 'sha256:abc123'),
-        )!.sha256,
+        StoredFile.fromMessage(_documentMessage(caption: 'sha256:abc123'))!
+            .sha256,
         isNull,
       );
     });
@@ -354,10 +352,9 @@ void main() {
 
     test('filterFiles combines category, folder and search', () {
       expect(filterFiles(files), same(files));
-      expect(
-        filterFiles(files, category: Category.photos).map((f) => f.name),
-        ['b.jpg'],
-      );
+      expect(filterFiles(files, category: Category.photos).map((f) => f.name), [
+        'b.jpg',
+      ]);
       expect(filterFiles(files, folder: 'Trip').map((f) => f.name), [
         'b.jpg',
         'a.mp4',

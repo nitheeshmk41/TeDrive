@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Locations TeDrive may hand to other apps when sharing or opening a file. -->
+<paths>
+    <!-- Files downloaded from Telegram. -->
+    <files-path name="drive" path="tdlib_files/" />
+    <cache-path name="cache" path="." />
+    <!-- Originals still on the phone (photos and videos that were backed up). -->
+    <external-path name="phone" path="." />
+    <root-path name="storage" path="storage/" />
+</paths>

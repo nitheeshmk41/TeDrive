@@ -5,6 +5,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'media_server.dart';
+import 'picker_catalogue.dart';
 import 'stored_file.dart';
 import 'td/td_client.dart' show TdError;
 import 'tedrive_service.dart';
@@ -98,9 +100,17 @@ class DownloadCancelled implements Exception {
 /// State of the drive screen: the file list, the upload queue and the
 /// downloads in progress.
 class DriveController extends ChangeNotifier {
-  DriveController(this._service);
+  DriveController(this._service) {
+    _updates = _service.td.updates.listen(_onUpdate);
+  }
 
   final TeDriveService _service;
+  late final StreamSubscription<Json> _updates;
+  late final MediaServer _media = MediaServer(_service);
+  Timer? _catalogueTimer;
+
+  /// True in the web demo, where files are samples and cannot be opened.
+  bool get isDemo => _service.isDemo;
 
   bool loading = true;
   String? error;
@@ -123,14 +133,76 @@ class DriveController extends ChangeNotifier {
   bool get hasActiveUploads => uploads.any((t) => t.isActive);
 
   void _notify() {
-    if (!_disposed) notifyListeners();
+    if (_disposed) return;
+    notifyListeners();
+    _scheduleCatalogue();
   }
 
   @override
   void dispose() {
     _disposed = true;
+    _updates.cancel();
+    _catalogueTimer?.cancel();
+    _media.close();
     super.dispose();
   }
+
+  /// Keeps the list Android's file picker shows in step with the drive.
+  void _scheduleCatalogue() {
+    if (isDemo || loading) return;
+    _catalogueTimer ??= Timer(const Duration(seconds: 2), () {
+      _catalogueTimer = null;
+      if (!_disposed) writePickerCatalogue(files, _thumbPaths);
+    });
+  }
+
+  // ---- Changes made on other devices ----
+
+  /// Telegram pushes every change to the channel to all signed-in
+  /// devices. Applying them here keeps this device's list current when a
+  /// file is added, moved or deleted somewhere else.
+  void _onUpdate(Json u) {
+    if (_chatId == null) return;
+    switch (u['@type']) {
+      case 'updateNewMessage':
+        final message = u['message'] as Json;
+        if (message['chat_id'] != _chatId) return;
+        final file = _service.fileOf(message);
+        if (file != null) _addOrReplace(file);
+      case 'updateDeleteMessages':
+        if (u['chat_id'] != _chatId ||
+            u['is_permanent'] != true ||
+            u['from_cache'] == true) {
+          return;
+        }
+        final gone = (u['message_ids'] as List).toSet();
+        if (files.any((f) => gone.contains(f.messageId))) {
+          files = files.where((f) => !gone.contains(f.messageId)).toList();
+          _notify();
+        }
+      case 'updateMessageContent' || 'updateMessageEdited':
+        if (u['chat_id'] != _chatId) return;
+        final id = u['message_id'] as int;
+        if (!files.any((f) => f.messageId == id)) return;
+        _service.fetchFile(_chatId!, id).then((file) {
+          if (file != null && !_disposed) _addOrReplace(file);
+        });
+    }
+  }
+
+  void _addOrReplace(StoredFile file) {
+    if (files.any((f) => f.messageId == file.messageId)) {
+      // Keep what this device knows about its own local copy.
+      final local = _current(file).localPath;
+      _replace(file.localPath == null ? file.withLocalPath(local) : file);
+    } else {
+      files = sortNewestFirst([file, ...files]);
+      _notify();
+    }
+  }
+
+  /// A URL the in-app player can stream [file] from.
+  Future<Uri> streamUrl(StoredFile file) => _media.urlFor(_current(file));
 
   // ---- Catalogue ----
 
@@ -172,7 +244,7 @@ class DriveController extends ChangeNotifier {
   /// Forgets local copies that are no longer on the phone, for example
   /// after "free up space" removed the originals.
   void recheckLocalPaths() {
-    if (kIsWeb) return;
+    if (isDemo) return;
     files = [
       for (final f in files)
         if (f.localPath != null && !File(f.localPath!).existsSync())
@@ -198,13 +270,19 @@ class DriveController extends ChangeNotifier {
   );
 
   final Map<int, Future<String?>> _thumbnails = {};
+  final Map<int, String> _thumbPaths = {};
 
   /// Path of the preview image for [file], fetched once and then reused.
   /// Completes with null when the file has no preview.
   Future<String?> thumbnail(StoredFile file) {
     final id = file.thumbFileId;
     if (id == null) return Future.value();
-    return _thumbnails[file.messageId] ??= _service.thumbnailPath(id);
+    return _thumbnails[file.messageId] ??= _service.thumbnailPath(id).then((
+      path,
+    ) {
+      if (path != null) _thumbPaths[file.messageId] = path;
+      return path;
+    });
   }
 
   void _replace(StoredFile updated) {
@@ -409,7 +487,10 @@ class DriveController extends ChangeNotifier {
       );
       // A private copy is removed below, so it is not an offline copy. A
       // backed-up original stays where it is and counts as one.
-      files = sortNewestFirst([stored.withLocalPath(directPath), ...files]);
+      files = sortNewestFirst([
+        stored.withLocalPath(directPath),
+        ...files.where((f) => f.messageId != stored.messageId),
+      ]);
       task
         ..status = UploadStatus.done
         ..progress = 1;

@@ -72,12 +72,10 @@ class BackupController extends ChangeNotifier {
 
   Future<void> init() async {
     settings = BackupSettings.decode(await _service.readSetting('backup'));
-    if (!kIsWeb) {
-      final support = await getApplicationSupportDirectory();
-      _indexFile = File('${support.path}/backup_index.json');
-      if (_indexFile!.existsSync()) {
-        _index = BackupIndex.decode(await _indexFile!.readAsString());
-      }
+    final support = await getApplicationSupportDirectory();
+    _indexFile = File('${support.path}/backup_index.json');
+    if (_indexFile!.existsSync()) {
+      _index = BackupIndex.decode(await _indexFile!.readAsString());
     }
     permission = await device.mediaPermission();
     _drive.addListener(_onDriveChanged);

@@ -2,6 +2,8 @@ package dev.tedrive.tedrive
 
 import android.Manifest
 import android.app.Activity
+import android.content.ActivityNotFoundException
+import android.content.ClipData
 import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
@@ -17,8 +19,10 @@ import android.os.BatteryManager
 import android.os.Build
 import android.provider.MediaStore
 import android.util.Size
+import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.embedding.engine.FlutterEngineCache
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
@@ -31,8 +35,19 @@ class MainActivity : FlutterActivity() {
     private var pendingDelete: MethodChannel.Result? = null
     private var pendingDeleteCount = 0
 
+    // If the file picker already started the app's engine in the background,
+    // show that same engine instead of starting a second Telegram session.
+    override fun provideFlutterEngine(context: Context): FlutterEngine? =
+        FlutterEngineCache.getInstance().get(TeDriveEngine.ENGINE_ID)
+
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        super.cleanUpFlutterEngine(flutterEngine)
+        TeDriveEngine.detach(flutterEngine)
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        TeDriveEngine.attach(flutterEngine)
         val messenger = flutterEngine.dartExecutor.binaryMessenger
         MethodChannel(messenger, "tedrive/thumbnails").setMethodCallHandler(::onThumbnailCall)
         MethodChannel(messenger, "tedrive/device").setMethodCallHandler(::onDeviceCall)
@@ -57,6 +72,9 @@ class MainActivity : FlutterActivity() {
             }
             "deleteMedia" -> deleteMedia(call.argument<List<Map<String, Any>>>("items") ?: emptyList(), result)
             "deviceStatus" -> result.success(deviceStatus())
+            "deviceName" -> result.success(deviceName())
+            "share" -> viewOrShare(call, result, share = true)
+            "open" -> viewOrShare(call, result, share = false)
             "startService" -> result.success(startService(call))
             "updateService" -> {
                 BackupService.update(
@@ -258,6 +276,50 @@ class MainActivity : FlutterActivity() {
             true
         } catch (e: Throwable) {
             false
+        }
+    }
+
+    private fun deviceName(): String {
+        val maker = Build.MANUFACTURER.orEmpty().replaceFirstChar { it.uppercase() }
+        val model = Build.MODEL.orEmpty()
+        return if (model.startsWith(maker, ignoreCase = true)) model else "$maker $model".trim()
+    }
+
+    /**
+     * Hands a file to another app, either through the share sheet or to be
+     * opened. The file is exposed as a content URI with its real MIME type
+     * and a temporary read permission, which is what apps such as WhatsApp
+     * require.
+     */
+    private fun viewOrShare(call: MethodCall, result: MethodChannel.Result, share: Boolean) {
+        val path = call.argument<String>("path")
+        val mime = call.argument<String>("mime") ?: "*/*"
+        if (path == null || !File(path).isFile) {
+            result.error("file", "The file is not on this phone", null)
+            return
+        }
+        try {
+            val uri = FileProvider.getUriForFile(this, "$packageName.files", File(path))
+            val intent = if (share) {
+                Intent(Intent.ACTION_SEND).setType(mime).putExtra(Intent.EXTRA_STREAM, uri)
+            } else {
+                Intent(Intent.ACTION_VIEW).setDataAndType(uri, mime)
+            }
+            intent.clipData = ClipData.newRawUri(File(path).name, uri)
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            if (share) {
+                startActivity(Intent.createChooser(intent, null))
+                result.success(true)
+            } else {
+                try {
+                    startActivity(intent)
+                    result.success(true)
+                } catch (e: ActivityNotFoundException) {
+                    result.success(false)
+                }
+            }
+        } catch (e: Throwable) {
+            result.error("share", e.message ?: "Could not hand the file to another app", null)
         }
     }
 

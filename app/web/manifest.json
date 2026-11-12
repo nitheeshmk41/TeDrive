@@ -1,11 +1,11 @@
 {
-    "name": "tedrive",
-    "short_name": "tedrive",
+    "name": "TeDrive",
+    "short_name": "TeDrive",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#0A1B45",
+    "theme_color": "#1677F0",
+    "description": "A personal cloud drive that keeps your files in your own Telegram account.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

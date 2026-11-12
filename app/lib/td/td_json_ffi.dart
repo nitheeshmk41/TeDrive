@@ -82,4 +82,3 @@ void tdReceiveLoop(SendPort port) {
     if (event != null) port.send(event);
   }
 }
-

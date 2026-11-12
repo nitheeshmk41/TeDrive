@@ -18,4 +18,3 @@ class TdJson {
 
 /// No-op receive loop for platforms without dart:ffi or isolates.
 void tdReceiveLoop(dynamic port) {}
-

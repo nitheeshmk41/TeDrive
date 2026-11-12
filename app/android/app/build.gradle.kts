@@ -47,3 +47,8 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // FileProvider, used to hand files to other apps.
+    implementation("androidx.core:core-ktx:1.15.0")
+}

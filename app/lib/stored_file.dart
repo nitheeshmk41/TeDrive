@@ -1,6 +1,8 @@
 // The file model and the pure helpers around it. No Flutter or TDLib
 // imports here, so everything in this file is unit-testable.
 
+import 'dart:convert';
+
 import 'json.dart';
 
 export 'json.dart';
@@ -22,6 +24,7 @@ class StoredFile {
     this.sha256,
     this.folder,
     this.taken,
+    this.device,
     this.localPath,
     this.thumbFileId,
     this.miniThumb,
@@ -40,6 +43,9 @@ class StoredFile {
 
   /// Original time of a backed-up photo or video, stored in the caption.
   final DateTime? taken;
+
+  /// Name of the device that uploaded the file, stored in the caption.
+  final String? device;
 
   /// Hash written into the caption at upload time, if any.
   final String? sha256;
@@ -71,6 +77,7 @@ class StoredFile {
     sha256: sha256,
     folder: folder == null ? this.folder : folder(),
     taken: taken,
+    device: device,
     localPath: localPath == null ? this.localPath : localPath(),
     thumbFileId: thumbFileId,
     miniThumb: miniThumb,
@@ -80,8 +87,12 @@ class StoredFile {
   StoredFile withFolder(String? name) => _copy(folder: () => name);
 
   /// The caption TeDrive writes for this file.
-  String get caption =>
-      buildCaption(sha256: sha256, folder: folder, taken: taken);
+  String get caption => buildCaption(
+    sha256: sha256,
+    folder: folder,
+    taken: taken,
+    device: device,
+  );
 
   /// Turns a TDLib message into a [StoredFile], or null if it has no file.
   static StoredFile? fromMessage(Json message) {
@@ -143,6 +154,7 @@ class StoredFile {
           taken ??
           DateTime.fromMillisecondsSinceEpoch((message['date'] as int) * 1000),
       taken: taken,
+      device: normalizeFolder(_devicePattern.firstMatch(caption)?.group(1)),
       sha256: _shaPattern.firstMatch(caption)?.group(1),
       folder: normalizeFolder(_folderPattern.firstMatch(caption)?.group(1)),
       localPath: local?['is_downloading_completed'] == true && path.isNotEmpty
@@ -173,12 +185,19 @@ final _folderPattern = RegExp(r'^folder:(.*)$', multiLine: true);
 
 /// Captions carry TeDrive's metadata, one `key:value` per line, so the
 /// whole catalogue can be rebuilt from the channel history alone.
-String buildCaption({String? sha256, String? folder, DateTime? taken}) => [
+String buildCaption({
+  String? sha256,
+  String? folder,
+  DateTime? taken,
+  String? device,
+}) => [
   if (sha256 != null) 'sha256:$sha256',
   if (normalizeFolder(folder) != null) 'folder:${normalizeFolder(folder)}',
   if (taken != null) 'time:${taken.millisecondsSinceEpoch ~/ 1000}',
+  if (normalizeFolder(device) != null) 'device:${normalizeFolder(device)}',
 ].join('\n');
 
+final _devicePattern = RegExp(r'^device:(.*)$', multiLine: true);
 final _timePattern = RegExp(r'^time:(\d{1,12})$', multiLine: true);
 
 /// Newest first; files with the same time keep their channel order.
@@ -348,3 +367,70 @@ List<StoredFile> searchFiles(List<StoredFile> files, String query) {
   if (q.isEmpty) return files;
   return files.where((f) => f.name.toLowerCase().contains(q)).toList();
 }
+
+/// MIME type for a file name, used when sharing and streaming.
+String mimeOf(String name) {
+  final dot = name.lastIndexOf('.');
+  final ext = dot < 0 ? '' : name.substring(dot + 1).toLowerCase();
+  return _mimeTypes[ext] ?? 'application/octet-stream';
+}
+
+const _mimeTypes = {
+  'jpg': 'image/jpeg',
+  'jpeg': 'image/jpeg',
+  'png': 'image/png',
+  'gif': 'image/gif',
+  'webp': 'image/webp',
+  'heic': 'image/heic',
+  'heif': 'image/heif',
+  'bmp': 'image/bmp',
+  'mp4': 'video/mp4',
+  'm4v': 'video/mp4',
+  'mkv': 'video/x-matroska',
+  'mov': 'video/quicktime',
+  'webm': 'video/webm',
+  '3gp': 'video/3gpp',
+  'avi': 'video/x-msvideo',
+  'mp3': 'audio/mpeg',
+  'm4a': 'audio/mp4',
+  'aac': 'audio/aac',
+  'ogg': 'audio/ogg',
+  'opus': 'audio/ogg',
+  'wav': 'audio/wav',
+  'flac': 'audio/flac',
+  'amr': 'audio/amr',
+  'pdf': 'application/pdf',
+  'txt': 'text/plain',
+  'csv': 'text/csv',
+  'doc': 'application/msword',
+  'docx':
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'xls': 'application/vnd.ms-excel',
+  'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'ppt': 'application/vnd.ms-powerpoint',
+  'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'zip': 'application/zip',
+  'rar': 'application/vnd.rar',
+  '7z': 'application/x-7z-compressed',
+  'apk': 'application/vnd.android.package-archive',
+};
+
+/// The catalogue as the native side expects it.
+String encodePickerCatalogue(
+  List<StoredFile> files,
+  Map<int, String> thumbPaths,
+) => jsonEncode({
+  'files': [
+    for (final f in files)
+      {
+        'id': f.messageId,
+        'name': f.name,
+        'size': f.size,
+        'time': f.date.millisecondsSinceEpoch,
+        'folder': f.folder,
+        'mime': mimeOf(f.name),
+        'path': f.localPath,
+        'thumb': thumbPaths[f.messageId],
+      },
+  ],
+});

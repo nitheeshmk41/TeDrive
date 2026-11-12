@@ -36,10 +36,7 @@ void main() {
       expect(m.id, 42);
       expect(m.video, isTrue);
       expect(m.key, '/sdcard/DCIM/Camera/a.mp4|5000|1794472320');
-      expect(
-        m.takenAt,
-        DateTime.fromMillisecondsSinceEpoch(1794400000 * 1000),
-      );
+      expect(m.takenAt, DateTime.fromMillisecondsSinceEpoch(1794400000 * 1000));
     });
 
     test('the key changes when the file is edited', () {
@@ -183,7 +180,12 @@ void main() {
 
     test('nothing is pending when no album is chosen', () {
       expect(
-        pendingBackup([a, b, c], albums: {}, index: BackupIndex(), driveShas: {}),
+        pendingBackup(
+          [a, b, c],
+          albums: {},
+          index: BackupIndex(),
+          driveShas: {},
+        ),
         isEmpty,
       );
     });
@@ -194,10 +196,7 @@ void main() {
 
     test('needs a hash AND a drive file with that hash and size', () {
       final index = BackupIndex()..record(a, 'sha-a');
-      expect(
-        freeable([a], index: index, driveSizeBySha: {'sha-a': 100}),
-        [a],
-      );
+      expect(freeable([a], index: index, driveSizeBySha: {'sha-a': 100}), [a]);
     });
 
     test('never frees a file that was not hashed', () {

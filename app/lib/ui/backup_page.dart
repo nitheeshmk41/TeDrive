@@ -4,31 +4,26 @@ import '../backup_controller.dart';
 import '../backup_plan.dart';
 import '../stored_file.dart' show formatBytes;
 
-/// Phone backup settings, progress, and "free up space".
-class BackupPage extends StatelessWidget {
-  const BackupPage({super.key, required this.backup});
+/// Phone backup settings, progress, and "free up space". Shown as the body
+/// of the Backup tab.
+class BackupBody extends StatelessWidget {
+  const BackupBody({super.key, required this.backup});
   final BackupController backup;
 
   @override
-  Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: backup,
-      builder: (context, _) => Scaffold(
-        appBar: AppBar(
-          title: const Text('Phone backup'),
-          bottom: backup.scanning
-              ? const PreferredSize(
-                  preferredSize: Size.fromHeight(4),
-                  child: LinearProgressIndicator(),
-                )
-              : null,
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: backup,
+    builder: (context, _) => Column(
+      children: [
+        if (backup.scanning) const LinearProgressIndicator(minHeight: 2),
+        Expanded(
+          child: backup.hasPermission
+              ? _Content(backup: backup)
+              : _PermissionRequest(backup: backup),
         ),
-        body: backup.hasPermission
-            ? _Content(backup: backup)
-            : _PermissionRequest(backup: backup),
-      ),
-    );
-  }
+      ],
+    ),
+  );
 }
 
 class _PermissionRequest extends StatelessWidget {
