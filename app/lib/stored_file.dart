@@ -1,0 +1,350 @@
+// The file model and the pure helpers around it. No Flutter or TDLib
+// imports here, so everything in this file is unit-testable.
+
+import 'json.dart';
+
+export 'json.dart';
+
+/// Largest file Telegram accepts: 2000 MiB, or 4000 MiB with Premium.
+const int maxUploadBytes = 2000 * 1024 * 1024;
+const int maxUploadBytesPremium = 4000 * 1024 * 1024;
+
+enum FileKind { image, video, audio, pdf, document, archive, apk, other }
+
+/// A file stored as a message in the storage channel.
+class StoredFile {
+  const StoredFile({
+    required this.messageId,
+    required this.fileId,
+    required this.name,
+    required this.size,
+    required this.date,
+    this.sha256,
+    this.folder,
+    this.taken,
+    this.localPath,
+    this.thumbFileId,
+    this.miniThumb,
+  });
+
+  final int messageId;
+
+  /// TDLib's id for the file. Only valid in the current session.
+  final int fileId;
+  final String name;
+  final int size;
+
+  /// When the photo or video was taken if known ([taken]), otherwise when
+  /// it was uploaded. The gallery sorts and groups by this.
+  final DateTime date;
+
+  /// Original time of a backed-up photo or video, stored in the caption.
+  final DateTime? taken;
+
+  /// Hash written into the caption at upload time, if any.
+  final String? sha256;
+
+  /// Folder name stored in the caption, or null for "no folder".
+  final String? folder;
+
+  /// Path of a complete copy on this phone, if TDLib has one.
+  final String? localPath;
+
+  /// TDLib's id for a small preview image, if Telegram has one.
+  final int? thumbFileId;
+
+  /// A tiny (about 40 px) JPEG preview as base64, shown while the real
+  /// thumbnail loads.
+  final String? miniThumb;
+
+  FileKind get kind => kindOf(name);
+
+  StoredFile _copy({
+    String? Function()? localPath,
+    String? Function()? folder,
+  }) => StoredFile(
+    messageId: messageId,
+    fileId: fileId,
+    name: name,
+    size: size,
+    date: date,
+    sha256: sha256,
+    folder: folder == null ? this.folder : folder(),
+    taken: taken,
+    localPath: localPath == null ? this.localPath : localPath(),
+    thumbFileId: thumbFileId,
+    miniThumb: miniThumb,
+  );
+
+  StoredFile withLocalPath(String? path) => _copy(localPath: () => path);
+  StoredFile withFolder(String? name) => _copy(folder: () => name);
+
+  /// The caption TeDrive writes for this file.
+  String get caption =>
+      buildCaption(sha256: sha256, folder: folder, taken: taken);
+
+  /// Turns a TDLib message into a [StoredFile], or null if it has no file.
+  static StoredFile? fromMessage(Json message) {
+    final content = message['content'] as Json;
+    final id = message['id'] as int;
+    Json? file;
+    String? name;
+    int? thumb;
+    Json? mini;
+    void media(Json holder, String key) {
+      file = holder[key] as Json;
+      name = holder['file_name'] as String?;
+      thumb = _thumbnailFileId(holder['thumbnail'] as Json?);
+      mini = holder['minithumbnail'] as Json?;
+    }
+
+    switch (content['@type']) {
+      case 'messageDocument':
+        media(content['document'] as Json, 'document');
+      case 'messageVideo':
+        media(content['video'] as Json, 'video');
+      case 'messageAudio':
+        media(content['audio'] as Json, 'audio');
+      case 'messageAnimation':
+        media(content['animation'] as Json, 'animation');
+      case 'messagePhoto':
+        final photo = content['photo'] as Json;
+        final sizes = (photo['sizes'] as List).cast<Json>();
+        if (sizes.isNotEmpty) {
+          file = sizes.last['photo'] as Json;
+          // The smallest size that is still sharp in a grid cell.
+          final preview = sizes.firstWhere(
+            (s) => ((s['width'] as int?) ?? 0) >= 200,
+            orElse: () => sizes.last,
+          );
+          thumb = (preview['photo'] as Json)['id'] as int?;
+        }
+        name = 'photo_$id.jpg';
+        mini = photo['minithumbnail'] as Json?;
+    }
+    final f = file;
+    if (f == null) return null;
+    final caption = (content['caption'] as Json?)?['text'] as String? ?? '';
+    final local = f['local'] as Json?;
+    final path = local?['path'] as String? ?? '';
+    final n = name;
+    final seconds = int.tryParse(
+      _timePattern.firstMatch(caption)?.group(1) ?? '',
+    );
+    final taken = seconds == null
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(seconds * 1000);
+    return StoredFile(
+      messageId: id,
+      fileId: f['id'] as int,
+      name: (n == null || n.isEmpty) ? 'file_$id' : n,
+      size: fileSize(f),
+      date:
+          taken ??
+          DateTime.fromMillisecondsSinceEpoch((message['date'] as int) * 1000),
+      taken: taken,
+      sha256: _shaPattern.firstMatch(caption)?.group(1),
+      folder: normalizeFolder(_folderPattern.firstMatch(caption)?.group(1)),
+      localPath: local?['is_downloading_completed'] == true && path.isNotEmpty
+          ? path
+          : null,
+      thumbFileId: thumb,
+      miniThumb: mini?['data'] as String?,
+    );
+  }
+
+  /// Only still-image thumbnails can be drawn in the grid.
+  static int? _thumbnailFileId(Json? thumbnail) {
+    if (thumbnail == null) return null;
+    const drawable = {
+      'thumbnailFormatJpeg',
+      'thumbnailFormatPng',
+      'thumbnailFormatWebp',
+      'thumbnailFormatGif',
+    };
+    final format = (thumbnail['format'] as Json?)?['@type'];
+    if (!drawable.contains(format)) return null;
+    return (thumbnail['file'] as Json?)?['id'] as int?;
+  }
+}
+
+final _shaPattern = RegExp(r'sha256:([0-9a-f]{64})');
+final _folderPattern = RegExp(r'^folder:(.*)$', multiLine: true);
+
+/// Captions carry TeDrive's metadata, one `key:value` per line, so the
+/// whole catalogue can be rebuilt from the channel history alone.
+String buildCaption({String? sha256, String? folder, DateTime? taken}) => [
+  if (sha256 != null) 'sha256:$sha256',
+  if (normalizeFolder(folder) != null) 'folder:${normalizeFolder(folder)}',
+  if (taken != null) 'time:${taken.millisecondsSinceEpoch ~/ 1000}',
+].join('\n');
+
+final _timePattern = RegExp(r'^time:(\d{1,12})$', multiLine: true);
+
+/// Newest first; files with the same time keep their channel order.
+List<StoredFile> sortNewestFirst(List<StoredFile> files) {
+  final indexed = [for (var i = 0; i < files.length; i++) (i, files[i])];
+  indexed.sort((a, b) {
+    final byDate = b.$2.date.compareTo(a.$2.date);
+    return byDate != 0 ? byDate : a.$1.compareTo(b.$1);
+  });
+  return [for (final e in indexed) e.$2];
+}
+
+/// Cleans a folder name typed by the user. Returns null for "no folder".
+String? normalizeFolder(String? name) {
+  if (name == null) return null;
+  final oneLine = name.replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (oneLine.isEmpty) return null;
+  return oneLine.length > 40 ? oneLine.substring(0, 40).trim() : oneLine;
+}
+
+/// Folder names in use, sorted alphabetically ignoring case.
+List<String> foldersOf(Iterable<StoredFile> files) {
+  final names = {
+    for (final f in files)
+      if (f.folder != null) f.folder!,
+  }.toList();
+  names.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+  return names;
+}
+
+/// The tabs of the gallery.
+enum Category { all, photos, videos, audio, documents, other }
+
+bool inCategory(StoredFile file, Category category) => switch (category) {
+  Category.all => true,
+  Category.photos => file.kind == FileKind.image,
+  Category.videos => file.kind == FileKind.video,
+  Category.audio => file.kind == FileKind.audio,
+  Category.documents =>
+    file.kind == FileKind.pdf || file.kind == FileKind.document,
+  Category.other =>
+    file.kind == FileKind.archive ||
+        file.kind == FileKind.apk ||
+        file.kind == FileKind.other,
+};
+
+/// Applies the gallery's category, folder and search filters together.
+List<StoredFile> filterFiles(
+  List<StoredFile> files, {
+  Category category = Category.all,
+  String? folder,
+  String query = '',
+}) {
+  final q = query.trim().toLowerCase();
+  if (category == Category.all && folder == null && q.isEmpty) return files;
+  return files
+      .where(
+        (f) =>
+            inCategory(f, category) &&
+            (folder == null || f.folder == folder) &&
+            (q.isEmpty || f.name.toLowerCase().contains(q)),
+      )
+      .toList();
+}
+
+const _monthNames = [
+  'January', 'February', 'March', 'April', 'May', 'June', //
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+/// Splits files (already newest first) into month sections for the grid.
+List<({String label, List<StoredFile> files})> groupByMonth(
+  List<StoredFile> files,
+) {
+  final groups = <({String label, List<StoredFile> files})>[];
+  int? year, month;
+  for (final f in files) {
+    if (f.date.year != year || f.date.month != month) {
+      year = f.date.year;
+      month = f.date.month;
+      groups.add((label: '${_monthNames[month - 1]} $year', files: []));
+    }
+    groups.last.files.add(f);
+  }
+  return groups;
+}
+
+/// Size of a TDLib file object; falls back to the expected size while the
+/// real one is still unknown.
+int fileSize(Json file) {
+  final size = file['size'] as int? ?? 0;
+  return size != 0 ? size : file['expected_size'] as int? ?? 0;
+}
+
+FileKind kindOf(String name) {
+  final dot = name.lastIndexOf('.');
+  final ext = dot < 0 ? '' : name.substring(dot + 1).toLowerCase();
+  return switch (ext) {
+    'jpg' ||
+    'jpeg' ||
+    'png' ||
+    'gif' ||
+    'webp' ||
+    'heic' ||
+    'heif' ||
+    'bmp' => FileKind.image,
+    'mp4' ||
+    'mkv' ||
+    'mov' ||
+    'webm' ||
+    '3gp' ||
+    'avi' ||
+    'm4v' => FileKind.video,
+    'mp3' ||
+    'm4a' ||
+    'aac' ||
+    'ogg' ||
+    'opus' ||
+    'wav' ||
+    'flac' ||
+    'amr' => FileKind.audio,
+    'pdf' => FileKind.pdf,
+    'doc' ||
+    'docx' ||
+    'xls' ||
+    'xlsx' ||
+    'ppt' ||
+    'pptx' ||
+    'txt' ||
+    'csv' ||
+    'odt' => FileKind.document,
+    'zip' || 'rar' || '7z' || 'tar' || 'gz' => FileKind.archive,
+    'apk' => FileKind.apk,
+    _ => FileKind.other,
+  };
+}
+
+String formatBytes(int n) {
+  const kb = 1024, mb = kb * 1024, gb = mb * 1024;
+  if (n < kb) return '$n B';
+  if (n < mb) return '${(n / kb).toStringAsFixed(1)} KB';
+  if (n < gb) return '${(n / mb).toStringAsFixed(1)} MB';
+  return '${(n / gb).toStringAsFixed(2)} GB';
+}
+
+String formatDate(DateTime d) {
+  const months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', //
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+  String two(int v) => v.toString().padLeft(2, '0');
+  return '${d.day} ${months[d.month - 1]} ${d.year}, '
+      '${two(d.hour)}:${two(d.minute)}';
+}
+
+/// A file name that is safe to use as a single path segment.
+String safeFileName(String name) {
+  final cleaned = name.replaceAll(RegExp(r'[/\\\x00]'), '_').trim();
+  return cleaned.isEmpty || cleaned == '.' || cleaned == '..'
+      ? 'file'
+      : cleaned;
+}
+
+/// Case-insensitive name search. An empty query matches everything.
+List<StoredFile> searchFiles(List<StoredFile> files, String query) {
+  final q = query.trim().toLowerCase();
+  if (q.isEmpty) return files;
+  return files.where((f) => f.name.toLowerCase().contains(q)).toList();
+}

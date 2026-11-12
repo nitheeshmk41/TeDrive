@@ -1,0 +1,26 @@
+# Flutter / Dart
+**/build/
+**/.dart_tool/
+**/.flutter-plugins-dependencies
+**/.pub/
+**/.pub-cache/
+**/coverage/
+.widget_preview/
+
+# Build artifacts & packages
+*.apk
+*.aab
+dist/*.apk
+
+# IDE & OS
+.idea/
+*.iml
+.vscode/
+.DS_Store
+*.log
+*.class
+
+# Secrets
+secrets.json
+*.key
+*.keystore
