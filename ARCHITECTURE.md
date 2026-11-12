@@ -51,8 +51,8 @@ Reading the channel history rebuilds the whole drive on any device. Changes made
 
 ## Limits that follow from the design
 
-- No server-side features: link passwords, expiry, access logs, bot inbox, accounts other than Telegram.
-- Files are not end-to-end encrypted (ordinary Telegram cloud messages).
+- No server means no accounts other than Telegram, no link passwords or expiry, no access logs and no bot inbox. These are out of scope, not postponed.
+- Files are not end-to-end encrypted (ordinary Telegram cloud messages) until the encrypted vault exists.
 - Telegram is not a contracted storage service.
 
 ## Builds
