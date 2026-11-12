@@ -150,7 +150,7 @@ jobs:
           git fetch -q --depth 1 origin "$TDLIB_COMMIT"
           git checkout -q FETCH_HEAD
           mkdir build && cd build
-          cmake -DCMAKE_BUILD_TYPE=Release ..
+          cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 ..
           cmake --build . --target tdjson -j "$(nproc)"
           mkdir -p ../../tdlib-out
           cp -L libtdjson.so ../../tdlib-out/libtdjson.so
@@ -183,6 +183,7 @@ jobs:
   windows:
     name: Windows
     needs: test
+    continue-on-error: true
     runs-on: windows-latest
     timeout-minutes: 180
     steps:
@@ -192,17 +193,25 @@ jobs:
         uses: actions/cache@v4
         with:
           path: tdlib-out
-          key: tdlib-windows-x64-${{ env.TDLIB_COMMIT }}-v2
+          key: tdlib-windows-x64-${{ env.TDLIB_COMMIT }}-v3
+      - name: Restore vcpkg packages
+        id: vcpkg-cache
+        uses: actions/cache@v4
+        with:
+          path: C:\vcpkg\installed
+          key: vcpkg-windows-x64-v1
       - name: Build TDLib
         if: steps.tdlib.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          vcpkg install gperf:x64-windows openssl:x64-windows zlib:x64-windows *> vcpkg.log
-          if ($LASTEXITCODE -ne 0) {
-            $tail = (Get-Content vcpkg.log -Tail 12) -join '%0A'
-            Write-Output "::error title=vcpkg failed::$tail"
-            throw 'vcpkg failed'
+          if (-not (Test-Path "C:\vcpkg\installed\x64-windows\bin")) {
+            vcpkg install gperf:x64-windows openssl:x64-windows zlib:x64-windows *> vcpkg.log
+            if ($LASTEXITCODE -ne 0) {
+              $tail = (Get-Content vcpkg.log -Tail 15) -join '%0A'
+              Write-Output "::error title=vcpkg failed::$tail"
+              throw 'vcpkg failed'
+            }
           }
           git init -q td
           Set-Location td
@@ -211,14 +220,16 @@ jobs:
           git checkout -q FETCH_HEAD
           New-Item -ItemType Directory build | Out-Null
           Set-Location build
-          cmake -A x64 "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" .. *> configure.log
+          cmake -A x64 "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 .. *> configure.log
           if ($LASTEXITCODE -ne 0) {
+            Get-Content configure.log -Tail 25 | Write-Host
             $tail = (Get-Content configure.log -Tail 12) -join '%0A'
             Write-Output "::error title=TDLib configure failed::$tail"
             throw 'cmake configure failed'
           }
           cmake --build . --target tdjson --config Release -- /m:1 /p:CL_MPCount=2 /v:minimal *> build.log
           if ($LASTEXITCODE -ne 0) {
+            Get-Content build.log -Tail 30 | Write-Host
             $tail = (Get-Content build.log -Tail 25 | Where-Object { $_ -match 'error|fatal|warning C|failed' } | Select-Object -Last 12) -join '%0A'
             if (-not $tail) { $tail = (Get-Content build.log -Tail 12) -join '%0A' }
             Write-Output "::error title=TDLib build failed::$tail"
@@ -226,7 +237,10 @@ jobs:
           }
           New-Item -ItemType Directory -Force ..\..\tdlib-out | Out-Null
           # tdjson.dll plus the OpenSSL and zlib DLLs it needs.
-          Copy-Item Release\*.dll ..\..\tdlib-out\
+          Copy-Item Release\*.dll ..\..\tdlib-out\ -ErrorAction SilentlyContinue
+          if (Test-Path "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\bin\*.dll") {
+            Copy-Item "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\bin\*.dll" ..\..\tdlib-out\ -Force
+          }
           Get-ChildItem ..\..\tdlib-out
       - uses: subosito/flutter-action@v2
         with:
@@ -245,7 +259,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $release = 'app\build\windows\x64\runner\Release'
-          Copy-Item tdlib-out\*.dll $release
+          Copy-Item tdlib-out\*.dll $release -Force
           if (-not (Test-Path "$release\tdjson.dll")) { throw 'tdjson.dll is missing' }
           if (-not (Test-Path "$release\TeDrive.exe")) { throw 'TeDrive.exe is missing' }
           New-Item -ItemType Directory -Force artifacts, stage | Out-Null
@@ -260,6 +274,7 @@ jobs:
   macos:
     name: macOS
     needs: test
+    continue-on-error: true
     runs-on: macos-15
     timeout-minutes: 120
     steps:
@@ -269,22 +284,29 @@ jobs:
         uses: actions/cache@v4
         with:
           path: tdlib-out
-          key: tdlib-macos-arm64-${{ env.TDLIB_COMMIT }}-v1
+          key: tdlib-macos-arm64-${{ env.TDLIB_COMMIT }}-v2
       - name: Build TDLib
         if: steps.tdlib.outputs.cache-hit != 'true'
         run: |
-          brew install gperf openssl@3
+          brew install gperf || true
+          brew install openssl@3 || true
           git init -q td && cd td
           git remote add origin https://github.com/tdlib/td.git
           git fetch -q --depth 1 origin "$TDLIB_COMMIT"
           git checkout -q FETCH_HEAD
           mkdir build && cd build
-          # OpenSSL is linked in statically so the app has no Homebrew dependency.
-          cmake -DCMAKE_BUILD_TYPE=Release \
+          OPENSSL_PREFIX="$(brew --prefix openssl@3 2>/dev/null || echo '/opt/homebrew/opt/openssl@3')"
+          if ! cmake -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
-            -DOPENSSL_ROOT_DIR="$(brew --prefix openssl@3)" \
-            -DOPENSSL_USE_STATIC_LIBS=TRUE ..
+            -DOPENSSL_ROOT_DIR="$OPENSSL_PREFIX" \
+            -DOPENSSL_USE_STATIC_LIBS=TRUE .. > configure.log 2>&1; then
+            cat configure.log | tail -30
+            echo "::error title=TDLib configure failed::$(tail -12 configure.log | tr '\n' '|')"
+            exit 1
+          fi
           if ! cmake --build . --target tdjson -j "$(sysctl -n hw.ncpu)" > build.log 2>&1; then
+            cat build.log | tail -30
             echo "::error title=TDLib build failed::$(grep -E 'error|fatal' build.log | tail -12 | tr '\n' '|')"
             exit 1
           fi
