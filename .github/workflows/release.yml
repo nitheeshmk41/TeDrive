@@ -1,0 +1,68 @@
+name: Release Production APK
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build & Release Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Get dependencies
+        run: |
+          cd app
+          flutter pub get
+
+      - name: Build Release APKs
+        run: |
+          cd app
+          flutter build apk --release --split-per-abi
+
+      - name: Prepare Release Assets
+        run: |
+          mkdir -p release-assets
+          cp app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk release-assets/TeDrive-v0.1.0-arm64.apk
+          cp app/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk release-assets/TeDrive-v0.1.0-arm32.apk
+          cp app/build/app/outputs/flutter-apk/app-x86_64-release.apk release-assets/TeDrive-v0.1.0-x86_64.apk
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: TeDrive ${{ github.ref_name }}
+          body: |
+            ## TeDrive Release ${{ github.ref_name }} 🎉
+
+            ### Production APK Downloads:
+            - **TeDrive-v0.1.0-arm64.apk** *(Recommended for almost all modern Android phones)*
+            - **TeDrive-v0.1.0-arm32.apk** *(For older 32-bit ARM devices)*
+            - **TeDrive-v0.1.0-x86_64.apk** *(For emulators & ChromeOS)*
+
+            ### Highlights:
+            - Direct Telegram MTProto client via native TDLib FFI
+            - Backup photos, videos, and large files up to 2 GB per file
+            - Gallery viewer, search, and folder categorization
+            - Transparent custom app icon
+          files: release-assets/*.apk

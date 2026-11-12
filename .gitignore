@@ -24,3 +24,4 @@ dist/*.apk
 secrets.json
 *.key
 *.keystore
+
