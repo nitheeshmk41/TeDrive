@@ -508,76 +508,56 @@ class TeDriveService {
     final share = await _ensureShareChannel();
     int? blobId;
     try {
-      int? postId;
-
-      // 1. Instant server-side message copy via Telegram (fast, 0 download/upload)
-      try {
-        final forwarded = await td.request({
-          '@type': 'forwardMessages',
-          'chat_id': share.chatId,
-          'from_chat_id': storageChatId,
-          'message_ids': [file.messageId],
-          'send_copy': true,
-          'remove_caption': false,
-        });
-        final messages = (forwarded['messages'] as List?)?.cast<Json?>();
-        final first = messages?.firstWhere((m) => m != null, orElse: () => null);
-        if (first != null) {
-          postId = (first['id'] as int) >> 20;
-          try {
-            await td.request({
-              '@type': 'editMessageCaption',
-              'chat_id': share.chatId,
-              'message_id': first['id'] as int,
-              'caption': {'@type': 'formattedText', 'text': file.name},
-            });
-          } catch (_) {}
+      // The public copy carries only the file name: never the private
+      // caption (album, device name, fingerprint).
+      final caption = {'@type': 'formattedText', 'text': file.name};
+      final Json asDocument = {
+        '@type': 'inputMessageDocument',
+        // Reuses the copy already in Telegram, so nothing is uploaded.
+        'document': await _remoteInputFile(file),
+        'caption': caption,
+      };
+      Json? asMedia;
+      if (localCopy != null &&
+          (file.kind == FileKind.image || file.kind == FileKind.video)) {
+        // A copy is already on this device: send it as a real photo or
+        // video, which the link then shows directly in a browser.
+        final Json input;
+        if (kIsWeb) {
+          blobId = await WebTd.putBlob(localCopy);
+          input = {
+            '@type': 'inputFileBlob',
+            'name': file.name,
+            'blob_id': blobId,
+          };
+        } else {
+          input = {'@type': 'inputFileLocal', 'path': localCopy};
         }
-      } catch (_) {
-        // Fall back to direct media send below
+        asMedia = file.kind == FileKind.image
+            ? {'@type': 'inputMessagePhoto', 'photo': input, 'caption': caption}
+            : {
+                '@type': 'inputMessageVideo',
+                'video': input,
+                'supports_streaming': true,
+                'caption': caption,
+              };
       }
-
-      // 2. Fallback: direct media message send
-      if (postId == null) {
-        Json? input;
-        if (localCopy != null) {
-          if (kIsWeb) {
-            blobId = await WebTd.putBlob(localCopy);
-            input = {
-              '@type': 'inputFileBlob',
-              'name': file.name,
-              'blob_id': blobId,
-            };
-          } else {
-            input = {'@type': 'inputFileLocal', 'path': localCopy};
-          }
-        }
-        final caption = {'@type': 'formattedText', 'text': file.name};
-        final Json content = switch (file.kind) {
-          FileKind.image when input != null => {
-            '@type': 'inputMessagePhoto',
-            'photo': input,
-            'caption': caption,
-          },
-          FileKind.video when input != null => {
-            '@type': 'inputMessageVideo',
-            'video': input,
-            'supports_streaming': true,
-            'caption': caption,
-          },
-          _ => {
-            '@type': 'inputMessageDocument',
-            'document': await _remoteInputFile(file),
-            'caption': caption,
-          },
-        };
-        final sent = await _sendAndWait(
+      // Wait for Telegram to store the post: only then does it have the
+      // permanent number that the link is made from.
+      Json sent;
+      try {
+        sent = await _sendAndWait(
           share.chatId,
-          content,
+          asMedia ?? asDocument,
           onProgress: onProgress,
         );
-        postId = (sent['id'] as int) >> 20;
+      } on TdError {
+        // Telegram refuses some photos (too large, unusual format).
+        if (asMedia == null) rethrow;
+        sent = await _sendAndWait(share.chatId, asDocument);
       }
+      final postId = (sent['id'] as int) >> 20;
+      if (postId <= 0) throw StateError('Telegram did not confirm the post.');
 
       final link = 'https://t.me/${share.username}/$postId';
       await _setCaption(

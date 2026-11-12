@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'local_files.dart';
 import 'media_server.dart';
 import 'picker_catalogue.dart';
 import 'stored_file.dart';
@@ -723,7 +724,8 @@ class DriveController extends ChangeNotifier {
     final link = await _service.createShareLink(
       _chatId!,
       _current(file),
-      localCopy: current.localPath,
+      // Only a copy that is really on this device can be re-sent as media.
+      localCopy: localExists(current.localPath) ? current.localPath : null,
     );
     _replace(_current(file).withShareLink(link));
     return link;

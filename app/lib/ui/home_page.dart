@@ -354,7 +354,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 ListTile(
                   leading: const Icon(Icons.share_outlined),
                   title: const Text('Share link'),
-                  subtitle: const Text('Send link via WhatsApp, messaging apps…'),
+                  subtitle: const Text(
+                    'Send link via WhatsApp, messaging apps…',
+                  ),
                   onTap: () {
                     Navigator.pop(sheet);
                     _sharePublicLink(original);
@@ -363,7 +365,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 ListTile(
                   leading: const Icon(Icons.download_for_offline_outlined),
                   title: const Text('Send file directly'),
-                  subtitle: Text('Download & send full file (${formatBytes(file.size)})'),
+                  subtitle: Text(
+                    'Download & send full file (${formatBytes(file.size)})',
+                  ),
                   onTap: () {
                     Navigator.pop(sheet);
                     _share(original);
@@ -371,7 +375,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 ),
                 if (file.shareLink != null)
                   ListTile(
-                    leading: const Icon(Icons.link_off, color: Colors.redAccent),
+                    leading: const Icon(
+                      Icons.link_off,
+                      color: Colors.redAccent,
+                    ),
                     title: const Text('Manage or stop sharing link'),
                     onTap: () {
                       Navigator.pop(sheet);
