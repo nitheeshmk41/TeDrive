@@ -26,6 +26,7 @@ class StoredFile {
     this.taken,
     this.device,
     this.customName,
+    this.shareLink,
     this.localPath,
     this.thumbFileId,
     this.miniThumb,
@@ -43,6 +44,10 @@ class StoredFile {
   /// The name given with Rename, stored in the caption. Telegram cannot
   /// change the name of an uploaded file itself.
   final String? customName;
+
+  /// Public link (https://t.me/...) if the file is shared, stored in the
+  /// caption so every device knows about it.
+  final String? shareLink;
   final int size;
 
   /// When the photo or video was taken if known ([taken]), otherwise when
@@ -77,6 +82,7 @@ class StoredFile {
     String? Function()? localPath,
     String? Function()? folder,
     String? newName,
+    String? Function()? shareLink,
   }) => StoredFile(
     messageId: messageId,
     fileId: fileId,
@@ -88,6 +94,7 @@ class StoredFile {
     taken: taken,
     device: device,
     customName: newName ?? customName,
+    shareLink: shareLink == null ? this.shareLink : shareLink(),
     localPath: localPath == null ? this.localPath : localPath(),
     thumbFileId: thumbFileId,
     miniThumb: miniThumb,
@@ -100,6 +107,8 @@ class StoredFile {
   /// [cleanNewName].
   StoredFile renamed(String newName) => _copy(newName: newName);
 
+  StoredFile withShareLink(String? link) => _copy(shareLink: () => link);
+
   /// The caption TeDrive writes for this file.
   String get caption => buildCaption(
     sha256: sha256,
@@ -107,6 +116,7 @@ class StoredFile {
     taken: taken,
     device: device,
     name: customName,
+    share: shareLink,
   );
 
   /// Turns a TDLib message into a [StoredFile], or null if it has no file.
@@ -170,6 +180,8 @@ class StoredFile {
       fileId: f['id'] as int,
       name: customName ?? uploadedName,
       customName: customName,
+      shareLink: parseShareLink(_sharePattern.firstMatch(caption)?.group(1))
+          ?.link,
       size: fileSize(f),
       date:
           taken ??
@@ -212,15 +224,42 @@ String buildCaption({
   DateTime? taken,
   String? device,
   String? name,
+  String? share,
 }) => [
   if (sha256 != null) 'sha256:$sha256',
   if (normalizeFolder(folder) != null) 'folder:${normalizeFolder(folder)}',
   if (taken != null) 'time:${taken.millisecondsSinceEpoch ~/ 1000}',
   if (normalizeFolder(device) != null) 'device:${normalizeFolder(device)}',
   if (name != null && name.trim().isNotEmpty) 'name:${name.trim()}',
+  if (parseShareLink(share) != null) 'share:${parseShareLink(share)!.link}',
 ].join('\n');
 
 final _namePattern = RegExp(r'^name:(.*)$', multiLine: true);
+final _sharePattern = RegExp(r'^share:(.*)$', multiLine: true);
+
+/// A public Telegram post link, `https://t.me/<channel>/<post>`.
+typedef ShareLink = ({String link, String username, int post});
+
+/// Parses a share link. Anything that is not a plain public t.me post link
+/// is rejected, so a caption cannot smuggle in some other address.
+ShareLink? parseShareLink(String? text) {
+  if (text == null) return null;
+  final m = RegExp(
+    r'^https://t\.me/([A-Za-z][A-Za-z0-9_]{3,31})/([1-9][0-9]{0,9})$',
+  ).firstMatch(text.trim());
+  if (m == null) return null;
+  return (
+    link: 'https://t.me/${m.group(1)}/${m.group(2)}',
+    username: m.group(1)!,
+    post: int.parse(m.group(2)!),
+  );
+}
+
+/// A random public username for the user's sharing channel.
+String randomShareUsername(int Function(int max) nextInt) {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  return 'tedrive_${[for (var i = 0; i < 10; i++) chars[nextInt(chars.length)]].join()}';
+}
 
 /// Cleans a name typed in the Rename box. Path separators and line breaks
 /// are removed, and the original extension is put back if the user left it

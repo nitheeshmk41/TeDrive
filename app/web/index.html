@@ -7,7 +7,7 @@
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="TeDrive: a personal cloud drive that keeps your files in your own Telegram account. This page is a demo with sample files.">
+  <meta name="description" content="TeDrive: your personal cloud drive and photo library, stored in your own Telegram account.">
   <meta name="theme-color" content="#0A1B45">
 
   <!-- iOS meta tags & icons -->
@@ -72,6 +72,9 @@
       }, 60000);
     })();
   </script>
+  <!-- Telegram's library (TDLib in WebAssembly) and TeDrive's bridge to it. -->
+  <script src="tdweb.js"></script>
+  <script src="tedrive_td.js"></script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

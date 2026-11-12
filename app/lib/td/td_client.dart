@@ -5,8 +5,8 @@ import 'dart:isolate';
 import 'package:flutter/foundation.dart';
 
 import '../json.dart';
-import 'demo_backend.dart';
 import 'td_json.dart';
+import 'web_bridge.dart';
 
 export '../json.dart';
 
@@ -19,37 +19,34 @@ class TdError implements Exception {
   String toString() => 'Telegram error $code: $message';
 }
 
-/// Thrown by [TdClient.start] when TDLib's native library is not there.
+/// Thrown by [TdClient.start] when TDLib could not be loaded.
 class TdLibraryMissing implements Exception {
   @override
-  String toString() =>
-      'The Telegram library (tdjson) was not found next to the app.';
+  String toString() => kIsWeb
+      ? 'Telegram\'s library could not be loaded in this browser.'
+      : 'The Telegram library (tdjson) was not found next to the app.';
 }
 
 /// Talks to one TDLib client at a time: matches responses to requests and
 /// exposes updates. [open] can be called again after the client has closed
 /// (logout, or new API credentials) to get a fresh client.
 ///
-/// On the web there is no TDLib. There the client runs against
-/// [DemoBackend], which serves sample files and never contacts Telegram.
+/// On Android and desktop TDLib is a native library called through FFI. In
+/// the browser it is tdweb (TDLib compiled to WebAssembly), see [WebTd].
 class TdClient {
   late final TdJson _td;
-  DemoBackend? _demo;
   int _clientId = 0;
   final _pending = <String, Completer<Json>>{};
   final _updates = StreamController<Json>.broadcast();
   int _seq = 0;
 
-  /// True when showing sample data instead of a real Telegram account.
-  bool get isDemo => _demo != null;
-
   /// Everything TDLib sends that is not a reply to a request.
   Stream<Json> get updates => _updates.stream;
 
-  /// Loads the native library and starts the receive loop. Call once.
+  /// Loads the library and starts the receive loop. Call once.
   Future<void> start() async {
     if (kIsWeb) {
-      _demo = DemoBackend(_updates.add);
+      if (!WebTd.available) throw TdLibraryMissing();
       return;
     }
     try {
@@ -71,9 +68,9 @@ class TdClient {
       completer.completeError(TdError(500, 'Client was closed'));
     }
     _pending.clear();
-    final demo = _demo;
-    if (demo != null) {
-      demo.open();
+    if (kIsWeb) {
+      // tdweb sends its first updates by itself.
+      WebTd.create((json) => _updates.add(jsonDecode(json) as Json));
       return;
     }
     _clientId = _td.createClientId();
@@ -86,13 +83,23 @@ class TdClient {
 
   /// Sends a request and completes with the reply, or throws [TdError].
   Future<Json> request(Json body) {
-    final demo = _demo;
-    if (demo != null) return demo.request(body);
+    if (kIsWeb) return _webRequest(body);
     final extra = '${++_seq}';
     final completer = Completer<Json>();
     _pending[extra] = completer;
     _td.send(_clientId, jsonEncode({...body, '@extra': extra}));
     return completer.future;
+  }
+
+  Future<Json> _webRequest(Json body) async {
+    final reply = jsonDecode(await WebTd.send(jsonEncode(body))) as Json;
+    if (reply['@type'] == 'error') {
+      throw TdError(
+        reply['code'] as int? ?? 500,
+        reply['message'] as String? ?? 'Unknown error',
+      );
+    }
+    return reply;
   }
 
   void _onRaw(dynamic raw) {

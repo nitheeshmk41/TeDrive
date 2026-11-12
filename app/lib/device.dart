@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import 'backup_plan.dart';
+import 'td/web_bridge.dart';
 
 /// Platform helpers. On Android these call into the app's native side: the
 /// media library, connection and power state, sharing, and the service
@@ -67,7 +68,7 @@ void onSharedFiles(void Function()? listener) {
 
 /// A readable name for this device, e.g. "Samsung SM-A525F".
 Future<String> deviceName() async {
-  if (kIsWeb) return 'Web browser';
+  if (kIsWeb) return browserDescription();
   if (isAndroid) {
     try {
       final name = await _channel.invokeMethod<String>('deviceName');
@@ -108,6 +109,12 @@ Future<bool> shareFile(
 /// Opens a file in whichever installed app handles its type.
 /// Returns false if no app can open it.
 Future<bool> openFile(String path, {required String mime, String? name}) async {
+  if (kIsWeb) {
+    // A blob: URL opens in a new tab: the browser shows photos, videos,
+    // audio and PDFs, and downloads anything else.
+    WebTd.open(path);
+    return true;
+  }
   if (!isAndroid) return false;
   return await _channel.invokeMethod<bool>('open', {
         'path': path,

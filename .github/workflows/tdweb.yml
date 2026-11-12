@@ -5,10 +5,9 @@ name: Build TDLib for the web
 # asset. The web app downloads that asset when it is built (see
 # app/tool/fetch_tdweb.sh), so the binaries never live in the repository.
 #
-# It only has to run again when TDLIB_COMMIT changes.
+# It only has to run again when TDLIB_COMMIT changes: start it from the
+# Actions tab (Run workflow). It takes about an hour.
 on:
-  push:
-    paths: ['.github/workflows/tdweb.yml']
   workflow_dispatch:
 
 permissions:

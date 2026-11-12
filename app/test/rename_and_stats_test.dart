@@ -190,4 +190,59 @@ void main() {
     expect(empty.count, 0);
     expect(empty.oldest, isNull);
   });
+  group('share links', () {
+    test('parseShareLink accepts public t.me post links only', () {
+      expect(parseShareLink('https://t.me/tedrive_ab12cd34ef/57'), (
+        link: 'https://t.me/tedrive_ab12cd34ef/57',
+        username: 'tedrive_ab12cd34ef',
+        post: 57,
+      ));
+      expect(parseShareLink('  https://t.me/abcde/1  ')?.post, 1);
+      for (final bad in [
+        null,
+        '',
+        'http://t.me/abcde/1',
+        'https://t.me/c/123456/7',
+        'https://t.me/abcde/0',
+        'https://t.me/abc/7',
+        'https://evil.example/abcde/7',
+        'https://t.me/abcde/7?x=1',
+        'https://t.me/abcde/7/extra',
+      ]) {
+        expect(parseShareLink(bad), isNull, reason: '$bad');
+      }
+    });
+
+    test('a share link round-trips through the caption', () {
+      final f = StoredFile.fromMessage(
+        _message(buildCaption(sha256: _sha, folder: 'Trip')),
+      )!;
+      expect(f.shareLink, isNull);
+      final shared = f.withShareLink('https://t.me/tedrive_x1y2z3w4v5/12');
+      expect(
+        shared.caption,
+        'sha256:$_sha\nfolder:Trip\nshare:https://t.me/tedrive_x1y2z3w4v5/12',
+      );
+      final seen = StoredFile.fromMessage(_message(shared.caption))!;
+      expect(seen.shareLink, 'https://t.me/tedrive_x1y2z3w4v5/12');
+      expect(seen.renamed('B.jpg').shareLink, seen.shareLink);
+      expect(seen.withFolder(null).shareLink, seen.shareLink);
+      expect(seen.withShareLink(null).caption, isNot(contains('share:')));
+    });
+
+    test('a bad share line in a caption is ignored', () {
+      final f = StoredFile.fromMessage(
+        _message('share:https://phishing.example/x'),
+      )!;
+      expect(f.shareLink, isNull);
+      expect(f.caption, isNot(contains('share:')));
+    });
+
+    test('randomShareUsername makes a valid public username', () {
+      var i = 0;
+      final name = randomShareUsername((max) => (i++ * 7) % max);
+      expect(name, matches(RegExp(r'^tedrive_[a-z0-9]{10}$')));
+      expect(parseShareLink('https://t.me/$name/1'), isNotNull);
+    });
+  });
 }

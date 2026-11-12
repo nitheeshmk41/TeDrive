@@ -11,9 +11,11 @@ import 'package:path_provider/path_provider.dart';
 
 import 'config.dart';
 import 'device.dart' as device;
+import 'local_files.dart';
 import 'picker_catalogue.dart';
 import 'stored_file.dart';
 import 'td/td_client.dart';
+import 'td/web_bridge.dart';
 import 'thumbnailer.dart';
 
 typedef Progress = void Function(int done, int total);
@@ -29,6 +31,10 @@ Future<String> sha256OfFile(String path) => Isolate.run(() async {
   final digest = await sha256.bind(File(path).openRead()).first;
   return digest.toString();
 });
+
+/// SHA-256 of a stream of bytes, e.g. a file picked in a browser.
+Future<String> sha256OfStream(Stream<List<int>> bytes) async =>
+    (await sha256.bind(bytes).first).toString();
 
 /// Everything TeDrive asks of Telegram: sign-in, the storage channel,
 /// uploads, the catalogue and downloads.
@@ -64,26 +70,21 @@ class TeDriveService {
   String? _apiHash;
   bool _clientOpen = false;
 
-  /// True in the web demo, which shows sample files and has no account.
-  bool get isDemo => td.isDemo;
   bool get hasCredentials => _apiId != null && _apiHash != null;
 
   Future<void> start() async {
     td.updates.listen(_onUpdate);
     await td.start();
-    if (isDemo) {
-      deviceName = 'Web demo';
-      _apiId = 1;
-      _apiHash = 'demo';
-    } else {
+    if (!kIsWeb) {
+      // In the browser tdweb chooses its own storage (IndexedDB).
       final support = await getApplicationSupportDirectory();
       _dbDir = '${support.path}/tdlib';
       _filesDir = '${support.path}/tdlib_files';
       _dbKey = await _loadOrCreateDbKey();
-      _apiId = int.tryParse(await _storage.read(key: _apiIdKey) ?? '');
-      _apiHash = await _storage.read(key: _apiHashKey);
-      deviceName = await device.deviceName();
     }
+    _apiId = int.tryParse(await _storage.read(key: _apiIdKey) ?? '');
+    _apiHash = await _storage.read(key: _apiHashKey);
+    deviceName = await device.deviceName();
     _openOrAskForCredentials();
   }
 
@@ -152,12 +153,8 @@ class TeDriveService {
       case 'closed':
         // After logout or a credentials change: start again cleanly.
         _clientOpen = false;
-        if (isDemo) {
-          authState.value = 'starting';
-          td.open();
-        } else {
-          _openOrAskForCredentials();
-        }
+        _webUrls.clear();
+        _openOrAskForCredentials();
       case 'waitCode':
         codeDestination = _describeCodeType(
           ((auth['code_info'] as Json?)?['type'] as Json?)?['@type'] as String?,
@@ -198,7 +195,7 @@ class TeDriveService {
         'system_language_code': 'en',
         // Shown in Telegram's "Devices" list, so each device is recognisable.
         'device_model': 'TeDrive on $deviceName',
-        'system_version': isDemo ? '' : Platform.operatingSystemVersion,
+        'system_version': kIsWeb ? '' : Platform.operatingSystemVersion,
         'application_version': '1.0.0',
         'enable_storage_optimizer': false,
         'ignore_file_names': false,
@@ -225,34 +222,55 @@ class TeDriveService {
   });
 
   Future<void> logOut() async {
-    if (!isDemo) {
-      await clearPickerCatalogue();
-      await _storage.delete(key: 'setting_channel_id');
-    }
+    await clearPickerCatalogue();
+    await _storage.delete(key: 'setting_channel_id');
     await td.request({'@type': 'logOut'});
   }
 
   // ---- Storage channel ----
 
-  bool _isStorageChannel(Json chat) {
+  bool _isChannelTitled(Json chat, String title) {
     final type = chat['type'] as Json;
-    return chat['title'] == storageChannelTitle &&
+    return chat['title'] == title &&
         type['@type'] == 'chatTypeSupergroup' &&
         type['is_channel'] == true;
   }
 
-  Future<List<int>> _matchingChannels(String method) async {
+  Future<List<int>> _matchingChannels(String method, String title) async {
     final found = await td.request({
       '@type': method,
-      'query': storageChannelTitle,
+      'query': title,
       'limit': 50,
     });
     final ids = <int>[];
     for (final id in (found['chat_ids'] as List).cast<int>()) {
       final chat = await td.request({'@type': 'getChat', 'chat_id': id});
-      if (_isStorageChannel(chat)) ids.add(id);
+      if (_isChannelTitled(chat, title)) ids.add(id);
     }
     return ids;
+  }
+
+  /// The oldest channel with [title] in this account, or null.
+  Future<int?> _findChannelTitled(String title, {int? saved}) async {
+    var ids = {
+      ...await _matchingChannels('searchChatsOnServer', title),
+      ...await _matchingChannels('searchChats', title),
+    };
+    if (ids.isEmpty) {
+      await _loadAllChats();
+      ids = {...await _matchingChannels('searchChats', title)};
+    }
+    if (ids.isEmpty && saved != null) {
+      try {
+        final chat = await td.request({'@type': 'getChat', 'chat_id': saved});
+        if (_isChannelTitled(chat, title)) ids = {saved};
+      } on TdError {
+        // The saved channel no longer exists.
+      }
+    }
+    if (ids.isEmpty) return null;
+    // Channel ids only grow, so the smallest magnitude is the oldest.
+    return ids.reduce((a, b) => a.abs() <= b.abs() ? a : b);
   }
 
   /// Loads the account's whole chat list, so a local search sees every chat.
@@ -275,28 +293,10 @@ class TeDriveService {
   /// thorough before anything new is created: Telegram's server search,
   /// then the full chat list. If there are several channels with the right
   /// title, the oldest wins on every device.
-  Future<int?> findChannel() async {
-    final saved = int.tryParse(await readSetting('channel_id') ?? '');
-    var ids = {
-      ...await _matchingChannels('searchChatsOnServer'),
-      ...await _matchingChannels('searchChats'),
-    };
-    if (ids.isEmpty) {
-      await _loadAllChats();
-      ids = {...await _matchingChannels('searchChats')};
-    }
-    if (ids.isEmpty && saved != null) {
-      try {
-        final chat = await td.request({'@type': 'getChat', 'chat_id': saved});
-        if (_isStorageChannel(chat)) ids = {saved};
-      } on TdError {
-        // The saved channel no longer exists.
-      }
-    }
-    if (ids.isEmpty) return null;
-    // Channel ids only grow, so the smallest magnitude is the oldest.
-    return ids.reduce((a, b) => a.abs() <= b.abs() ? a : b);
-  }
+  Future<int?> findChannel() async => _findChannelTitled(
+    storageChannelTitle,
+    saved: int.tryParse(await readSetting('channel_id') ?? ''),
+  );
 
   Future<int> createChannel() async {
     final chat = await td.request({
@@ -313,7 +313,7 @@ class TeDriveService {
 
   Future<int> ensureChannel() async {
     final id = await findChannel() ?? await createChannel();
-    if (!isDemo) await writeSetting('channel_id', '$id');
+    await writeSetting('channel_id', '$id');
     return id;
   }
 
@@ -329,11 +329,48 @@ class TeDriveService {
   /// [cancelUpload].
   Future<StoredFile> upload(
     int chatId,
-    String path,
+    Json inputFile,
     String sha, {
     String? folder,
     DateTime? taken,
     Thumbnail? thumbnail,
+    Progress? onProgress,
+    void Function(int tempMessageId)? onStarted,
+  }) => _sendAndWait(
+    chatId,
+    {
+      '@type': 'inputMessageDocument',
+      'document': inputFile,
+      // Keep the bytes untouched: no conversion to video or photo.
+      'disable_content_type_detection': true,
+      'caption': {
+        '@type': 'formattedText',
+        'text': buildCaption(
+          sha256: sha,
+          folder: folder,
+          taken: taken,
+          device: deviceName,
+        ),
+      },
+      // Telegram makes no preview for videos sent as plain files, so
+      // TeDrive supplies its own for the gallery.
+      if (thumbnail != null)
+        'thumbnail': {
+          '@type': 'inputThumbnail',
+          'thumbnail': {'@type': 'inputFileLocal', 'path': thumbnail.path},
+          'width': thumbnail.width,
+          'height': thumbnail.height,
+        },
+    },
+    onProgress: onProgress,
+    onStarted: onStarted,
+  ).then((sent) => StoredFile.fromMessage(sent)!);
+
+  /// Sends a message and waits until Telegram has stored it. Completes
+  /// with the sent message.
+  Future<Json> _sendAndWait(
+    int chatId,
+    Json content, {
     Progress? onProgress,
     void Function(int tempMessageId)? onStarted,
   }) async {
@@ -376,39 +413,177 @@ class TeDriveService {
       final pending = await td.request({
         '@type': 'sendMessage',
         'chat_id': chatId,
-        'input_message_content': {
-          '@type': 'inputMessageDocument',
-          'document': {'@type': 'inputFileLocal', 'path': path},
-          // Keep the bytes untouched: no conversion to video or photo.
-          'disable_content_type_detection': true,
-          'caption': {
-            '@type': 'formattedText',
-            'text': buildCaption(
-              sha256: sha,
-              folder: folder,
-              taken: taken,
-              device: deviceName,
-            ),
-          },
-          // Telegram makes no preview for videos sent as plain files, so
-          // TeDrive supplies its own for the gallery.
-          if (thumbnail != null)
-            'thumbnail': {
-              '@type': 'inputThumbnail',
-              'thumbnail': {'@type': 'inputFileLocal', 'path': thumbnail.path},
-              'width': thumbnail.width,
-              'height': thumbnail.height,
-            },
-        },
+        'input_message_content': content,
       });
       tempMessageId = pending['id'] as int;
       fileId = StoredFile.fromMessage(pending)?.fileId;
       onStarted?.call(tempMessageId);
-      final sent = await done.future;
-      return StoredFile.fromMessage(sent)!;
+      return await done.future;
     } finally {
       await sub.cancel();
     }
+  }
+
+  // ---- Public share links ----
+
+  /// Shared files are copied into this public channel. It is separate
+  /// from the private storage channel, which stays private.
+  static const shareChannelTitle = 'TeDrive Shared';
+
+  /// The public sharing channel and its username, created on first use.
+  Future<({int chatId, String username})> _ensureShareChannel() async {
+    final saved = int.tryParse(await readSetting('share_channel_id') ?? '');
+    var chatId = await _findChannelTitled(shareChannelTitle, saved: saved);
+    if (chatId == null) {
+      final chat = await td.request({
+        '@type': 'createNewSupergroupChat',
+        'title': shareChannelTitle,
+        'is_forum': false,
+        'is_channel': true,
+        'description':
+            'Files shared from TeDrive. Anyone with a link can see them.',
+        'message_auto_delete_time': 0,
+        'for_import': false,
+      });
+      chatId = chat['id'] as int;
+    }
+    await writeSetting('share_channel_id', '$chatId');
+    final chat = await td.request({'@type': 'getChat', 'chat_id': chatId});
+    final supergroupId = (chat['type'] as Json)['supergroup_id'] as int;
+    var username = await _publicUsername(supergroupId);
+    if (username == null) {
+      // A public link needs a public username. Pick a random free one.
+      final rng = Random.secure();
+      for (var attempt = 0; attempt < 6 && username == null; attempt++) {
+        final candidate = randomShareUsername(rng.nextInt);
+        final check = await td.request({
+          '@type': 'checkChatUsername',
+          'chat_id': chatId,
+          'username': candidate,
+        });
+        if (check['@type'] == 'checkChatUsernameResultPublicChatsTooMany') {
+          throw StateError(
+            'Your Telegram account already has the maximum number of public '
+            'channels, so TeDrive cannot create a sharing channel.',
+          );
+        }
+        if (check['@type'] != 'checkChatUsernameResultOk') continue;
+        await td.request({
+          '@type': 'setSupergroupUsername',
+          'supergroup_id': supergroupId,
+          'username': candidate,
+        });
+        username = candidate;
+      }
+      if (username == null) {
+        throw StateError('Could not reserve a link name. Please try again.');
+      }
+    }
+    return (chatId: chatId, username: username);
+  }
+
+  Future<String?> _publicUsername(int supergroupId) async {
+    final sg = await td.request({
+      '@type': 'getSupergroup',
+      'supergroup_id': supergroupId,
+    });
+    final active = ((sg['usernames'] as Json?)?['active_usernames'] as List?)
+        ?.cast<String>();
+    if (active != null && active.isNotEmpty) return active.first;
+    final old = sg['username'] as String?;
+    return old == null || old.isEmpty ? null : old;
+  }
+
+  /// Makes a public link for [file] and records it in the file's caption.
+  /// Photos and videos are sent as real photos and videos so the link shows
+  /// them in any browser; for that their contents are needed, given as
+  /// [localCopy] (a file path, or a blob: URL in the browser). Other files
+  /// reuse the copy already in Telegram, with no upload.
+  Future<String> createShareLink(
+    int storageChatId,
+    StoredFile file, {
+    String? localCopy,
+    Progress? onProgress,
+  }) async {
+    final share = await _ensureShareChannel();
+    int? blobId;
+    try {
+      Json? input;
+      if (localCopy != null) {
+        if (kIsWeb) {
+          blobId = await WebTd.putBlob(localCopy);
+          input = {
+            '@type': 'inputFileBlob',
+            'name': file.name,
+            'blob_id': blobId,
+          };
+        } else {
+          input = {'@type': 'inputFileLocal', 'path': localCopy};
+        }
+      }
+      final caption = {'@type': 'formattedText', 'text': file.name};
+      final Json content = switch (file.kind) {
+        FileKind.image when input != null => {
+          '@type': 'inputMessagePhoto',
+          'photo': input,
+          'caption': caption,
+        },
+        FileKind.video when input != null => {
+          '@type': 'inputMessageVideo',
+          'video': input,
+          'supports_streaming': true,
+          'caption': caption,
+        },
+        _ => {
+          '@type': 'inputMessageDocument',
+          'document': await _remoteInputFile(file),
+          'caption': caption,
+        },
+      };
+      final sent = await _sendAndWait(
+        share.chatId,
+        content,
+        onProgress: onProgress,
+      );
+      final post = (sent['id'] as int) >> 20;
+      final link = 'https://t.me/${share.username}/$post';
+      await _setCaption(
+        storageChatId,
+        file.messageId,
+        file.withShareLink(link).caption,
+      );
+      return link;
+    } finally {
+      if (blobId != null) WebTd.releaseBlob(blobId);
+    }
+  }
+
+  /// The file already in Telegram, so it can be sent again without upload.
+  Future<Json> _remoteInputFile(StoredFile file) async {
+    final f = await td.request({'@type': 'getFile', 'file_id': file.fileId});
+    final remoteId = (f['remote'] as Json?)?['id'] as String? ?? '';
+    if (remoteId.isEmpty) throw StateError('That file is not in Telegram yet.');
+    return {'@type': 'inputFileRemote', 'id': remoteId};
+  }
+
+  /// Deletes the public copy and removes the link from the caption.
+  Future<void> removeShareLink(int storageChatId, StoredFile file) async {
+    final link = parseShareLink(file.shareLink);
+    if (link != null) {
+      try {
+        final share = await _ensureShareChannel();
+        if (share.username.toLowerCase() == link.username.toLowerCase()) {
+          await deleteFromDrive(share.chatId, [link.post << 20]);
+        }
+      } catch (_) {
+        // Already gone. The caption is cleaned up below either way.
+      }
+    }
+    await _setCaption(
+      storageChatId,
+      file.messageId,
+      file.withShareLink(null).caption,
+    );
   }
 
   /// Stops an upload in progress by deleting its unsent message.
@@ -453,10 +628,10 @@ class TeDriveService {
     if (message['sending_state'] != null) return null;
     final file = StoredFile.fromMessage(message);
     if (file == null) return null;
-    final path = file.localPath;
-    return path != null && !isDemo && !File(path).existsSync()
-        ? file.withLocalPath(null)
-        : file;
+    // In the browser TDLib's paths are internal; a usable copy is a blob:
+    // URL, made when the file is opened.
+    if (kIsWeb) return file.withLocalPath(_webUrls[file.fileId]);
+    return localExists(file.localPath) ? file : file.withLocalPath(null);
   }
 
   /// Fetches one message again, e.g. after another device edited it.
@@ -518,9 +693,18 @@ class TeDriveService {
     }
   }
 
+  /// blob: URLs of files downloaded in the browser, by file id.
+  final Map<int, String> _webUrls = {};
+
   /// Returns the local path of the file, downloading it from Telegram
-  /// first if there is no complete copy on this phone.
-  Future<String> download(int fileId, {Progress? onProgress}) async {
+  /// first if there is no complete copy on this phone. In the browser this
+  /// is a blob: URL.
+  Future<String> download(
+    int fileId, {
+    Progress? onProgress,
+    String? mime,
+  }) async {
+    if (kIsWeb) return _webDownload(fileId, onProgress: onProgress, mime: mime);
     var file = await td.request({'@type': 'getFile', 'file_id': fileId});
     final existing = _completePath(file);
     if (existing != null) return existing;
@@ -555,6 +739,65 @@ class TeDriveService {
     return path;
   }
 
+  Future<String> _webDownload(
+    int fileId, {
+    Progress? onProgress,
+    String? mime,
+  }) async {
+    final known = _webUrls[fileId];
+    if (known != null) return known;
+    final sub = td.updates.listen((u) {
+      if (u['@type'] != 'updateFile') return;
+      final f = u['file'] as Json;
+      if (f['id'] == fileId) {
+        onProgress?.call(
+          (f['local'] as Json)['downloaded_size'] as int,
+          fileSize(f),
+        );
+      }
+    });
+    try {
+      await td.request({
+        '@type': 'downloadFile',
+        'file_id': fileId,
+        'priority': 1,
+        'offset': 0,
+        'limit': 0,
+        'synchronous': true,
+      });
+    } finally {
+      await sub.cancel();
+    }
+    final url = await WebTd.fileUrl(fileId, mime: mime);
+    if (url == null) throw StateError('The download did not complete.');
+    return _webUrls[fileId] = url;
+  }
+
+  /// Uploads a file picked in the browser (given by its blob: URL).
+  Future<StoredFile> uploadBlob(
+    int chatId,
+    String blobUrl,
+    String name,
+    String sha, {
+    String? folder,
+    Progress? onProgress,
+    void Function(int tempMessageId)? onStarted,
+  }) async {
+    final blobId = await WebTd.putBlob(blobUrl);
+    try {
+      return await upload(
+        chatId,
+        {'@type': 'inputFileBlob', 'name': name, 'blob_id': blobId},
+        sha,
+        folder: folder,
+        onProgress: onProgress,
+        onStarted: onStarted,
+      );
+    } finally {
+      WebTd.releaseBlob(blobId);
+    }
+  }
+
   /// Reads [count] bytes of a file starting at [offset], downloading just
   /// that part from Telegram if it is not on the phone yet. This is what
   /// lets videos and audio play without a full download.
@@ -577,8 +820,11 @@ class TeDriveService {
   }
 
   /// Path of the complete local copy of a file, if there is one.
-  Future<String?> localPathOf(int fileId) async =>
-      _completePath(await td.request({'@type': 'getFile', 'file_id': fileId}));
+  Future<String?> localPathOf(int fileId) async => kIsWeb
+      ? _webUrls[fileId]
+      : _completePath(
+          await td.request({'@type': 'getFile', 'file_id': fileId}),
+        );
 
   Future<void> cancelDownload(int fileId) => td.request({
     '@type': 'cancelDownloadFile',
@@ -586,8 +832,10 @@ class TeDriveService {
     'only_if_pending': false,
   });
 
-  /// Bytes used by copies TeDrive has downloaded to this device.
-  Future<int> cacheBytes() async {
+  /// Bytes used by copies TeDrive has downloaded to this device, or null
+  /// where that cannot be measured (in a browser).
+  Future<int?> cacheBytes() async {
+    if (kIsWeb) return null;
     final stats = await td.request({'@type': 'getStorageStatisticsFast'});
     return stats['files_size'] as int? ?? 0;
   }
@@ -595,27 +843,36 @@ class TeDriveService {
   /// Deletes downloaded copies, least recently used first, until at most
   /// [maxBytes] remain. Only TeDrive's own cache is touched, and files
   /// opened in the last hour are left alone. Everything stays in Telegram.
-  Future<void> trimCache(int maxBytes) => td.request({
-    '@type': 'optimizeStorage',
-    'size': maxBytes,
-    'ttl': -1,
-    'count': -1,
-    'immunity_delay': maxBytes == 0 ? 0 : 3600,
-    'file_types': const <Object>[],
-    'chat_ids': const <int>[],
-    'exclude_chat_ids': const <int>[],
-    'return_deleted_file_statistics': false,
-    'chat_limit': 0,
-  });
+  Future<void> trimCache(int maxBytes) async {
+    if (kIsWeb) return; // The browser manages its own storage.
+    await td.request({
+      '@type': 'optimizeStorage',
+      'size': maxBytes,
+      'ttl': -1,
+      'count': -1,
+      'immunity_delay': maxBytes == 0 ? 0 : 3600,
+      'file_types': const <Object>[],
+      'chat_ids': const <int>[],
+      'exclude_chat_ids': const <int>[],
+      'return_deleted_file_statistics': false,
+      'chat_limit': 0,
+    });
+  }
 
   /// True if [path] is inside TeDrive's own download cache, so removing it
   /// can never touch one of the user's original files.
-  bool isCached(String path) =>
-      _filesDir.isNotEmpty && path.startsWith(_filesDir);
+  bool isCached(String path) => kIsWeb
+      ? path.startsWith('blob:')
+      : _filesDir.isNotEmpty && path.startsWith(_filesDir);
 
   /// Removes the downloaded copy of a file to free phone storage.
   /// Returns false if the file is not in TeDrive's cache.
   Future<bool> removeOfflineCopy(int fileId) async {
+    if (kIsWeb) {
+      if (_webUrls.remove(fileId) == null) return false;
+      await _deleteFile(fileId);
+      return true;
+    }
     final file = await td.request({'@type': 'getFile', 'file_id': fileId});
     final path = (file['local'] as Json)['path'] as String? ?? '';
     if (path.isEmpty || !isCached(path)) return false;
