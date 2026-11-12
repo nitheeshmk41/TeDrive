@@ -21,16 +21,19 @@ class StoredFile {
     required this.name,
     required this.size,
     required this.date,
+    DateTime? uploaded,
     this.sha256,
     this.folder,
     this.taken,
     this.device,
     this.customName,
     this.shareLink,
+    this.starred = false,
+    this.trashedAt,
     this.localPath,
     this.thumbFileId,
     this.miniThumb,
-  });
+  }) : _uploaded = uploaded;
 
   final int messageId;
 
@@ -48,11 +51,23 @@ class StoredFile {
   /// Public link (https://t.me/...) if the file is shared, stored in the
   /// caption so every device knows about it.
   final String? shareLink;
+
+  /// Marked with a star, stored in the caption.
+  final bool starred;
+
+  /// When the file was moved to the trash, or null if it is not in it.
+  final DateTime? trashedAt;
+
+  bool get inTrash => trashedAt != null;
   final int size;
 
   /// When the photo or video was taken if known ([taken]), otherwise when
   /// it was uploaded. The gallery sorts and groups by this.
   final DateTime date;
+
+  /// When the file was uploaded (the message date).
+  DateTime get uploaded => _uploaded ?? date;
+  final DateTime? _uploaded;
 
   /// Original time of a backed-up photo or video, stored in the caption.
   final DateTime? taken;
@@ -83,18 +98,23 @@ class StoredFile {
     String? Function()? folder,
     String? newName,
     String? Function()? shareLink,
+    bool? starred,
+    DateTime? Function()? trashedAt,
   }) => StoredFile(
     messageId: messageId,
     fileId: fileId,
     name: newName ?? name,
     size: size,
     date: date,
+    uploaded: _uploaded,
     sha256: sha256,
     folder: folder == null ? this.folder : folder(),
     taken: taken,
     device: device,
     customName: newName ?? customName,
     shareLink: shareLink == null ? this.shareLink : shareLink(),
+    starred: starred ?? this.starred,
+    trashedAt: trashedAt == null ? this.trashedAt : trashedAt(),
     localPath: localPath == null ? this.localPath : localPath(),
     thumbFileId: thumbFileId,
     miniThumb: miniThumb,
@@ -108,6 +128,8 @@ class StoredFile {
   StoredFile renamed(String newName) => _copy(newName: newName);
 
   StoredFile withShareLink(String? link) => _copy(shareLink: () => link);
+  StoredFile withStar(bool on) => _copy(starred: on);
+  StoredFile withTrashedAt(DateTime? at) => _copy(trashedAt: () => at);
 
   /// The caption TeDrive writes for this file.
   String get caption => buildCaption(
@@ -117,6 +139,8 @@ class StoredFile {
     device: device,
     name: customName,
     share: shareLink,
+    starred: starred,
+    trashedAt: trashedAt,
   );
 
   /// Turns a TDLib message into a [StoredFile], or null if it has no file.
@@ -170,6 +194,9 @@ class StoredFile {
     final taken = seconds == null
         ? null
         : DateTime.fromMillisecondsSinceEpoch(seconds * 1000);
+    final uploadedAt = DateTime.fromMillisecondsSinceEpoch(
+      (message['date'] as int) * 1000,
+    );
     final uploadedName = (n == null || n.isEmpty) ? 'file_$id' : n;
     final customName = cleanNewName(
       _namePattern.firstMatch(caption)?.group(1) ?? '',
@@ -180,12 +207,13 @@ class StoredFile {
       fileId: f['id'] as int,
       name: customName ?? uploadedName,
       customName: customName,
+      starred: _starPattern.hasMatch(caption),
+      trashedAt: _parseSeconds(_trashPattern.firstMatch(caption)?.group(1)),
       shareLink: parseShareLink(_sharePattern.firstMatch(caption)?.group(1))
           ?.link,
       size: fileSize(f),
-      date:
-          taken ??
-          DateTime.fromMillisecondsSinceEpoch((message['date'] as int) * 1000),
+      date: taken ?? uploadedAt,
+      uploaded: uploadedAt,
       taken: taken,
       device: normalizeFolder(_devicePattern.firstMatch(caption)?.group(1)),
       sha256: _shaPattern.firstMatch(caption)?.group(1),
@@ -225,6 +253,8 @@ String buildCaption({
   String? device,
   String? name,
   String? share,
+  bool starred = false,
+  DateTime? trashedAt,
 }) => [
   if (sha256 != null) 'sha256:$sha256',
   if (normalizeFolder(folder) != null) 'folder:${normalizeFolder(folder)}',
@@ -232,10 +262,19 @@ String buildCaption({
   if (normalizeFolder(device) != null) 'device:${normalizeFolder(device)}',
   if (name != null && name.trim().isNotEmpty) 'name:${name.trim()}',
   if (parseShareLink(share) != null) 'share:${parseShareLink(share)!.link}',
+  if (starred) 'star:1',
+  if (trashedAt != null) 'trash:${trashedAt.millisecondsSinceEpoch ~/ 1000}',
 ].join('\n');
 
 final _namePattern = RegExp(r'^name:(.*)$', multiLine: true);
 final _sharePattern = RegExp(r'^share:(.*)$', multiLine: true);
+final _starPattern = RegExp(r'^star:1$', multiLine: true);
+final _trashPattern = RegExp(r'^trash:(\d{1,12})$', multiLine: true);
+
+DateTime? _parseSeconds(String? s) {
+  final v = int.tryParse(s ?? '');
+  return v == null ? null : DateTime.fromMillisecondsSinceEpoch(v * 1000);
+}
 
 /// A public Telegram post link, `https://t.me/<channel>/<post>`.
 typedef ShareLink = ({String link, String username, int post});
@@ -589,4 +628,71 @@ class DriveStats {
   DateTime? oldest;
   final Map<Category, ({int count, int bytes})> byCategory = {};
   final Map<String, ({int count, int bytes})> byDevice = {};
+}
+
+// ---------------------------------------------------------------- Views
+
+/// How long files stay in the trash before they are deleted for good.
+const trashDays = 30;
+
+/// Files in the trash longer than [trashDays].
+List<StoredFile> expiredTrash(Iterable<StoredFile> files, DateTime now) => [
+  for (final f in files)
+    if (f.trashedAt != null && now.difference(f.trashedAt!).inDays >= trashDays)
+      f,
+];
+
+/// Uploaded in the last [days] days, newest upload first. [uploaded] is
+/// the upload time (the message date), not the capture date.
+List<StoredFile> recentFiles(
+  List<StoredFile> files,
+  DateTime now, {
+  int days = 30,
+}) {
+  final since = now.subtract(Duration(days: days));
+  final recent = files.where((f) => f.uploaded.isAfter(since)).toList();
+  recent.sort((a, b) => b.uploaded.compareTo(a.uploaded));
+  return recent;
+}
+
+/// Largest first, at least [minBytes].
+List<StoredFile> largeFiles(List<StoredFile> files, {int minBytes = 0}) => [
+  for (final f in files)
+    if (f.size >= minBytes) f,
+]..sort((a, b) => b.size.compareTo(a.size));
+
+/// Groups of two or more files with the same SHA-256, biggest waste first.
+/// Within a group the oldest upload comes first (the one to keep).
+List<List<StoredFile>> duplicateGroups(Iterable<StoredFile> files) {
+  final bySha = <String, List<StoredFile>>{};
+  for (final f in files) {
+    if (f.sha256 != null) (bySha[f.sha256!] ??= []).add(f);
+  }
+  final groups = [
+    for (final g in bySha.values)
+      if (g.length > 1) g..sort((a, b) => a.uploaded.compareTo(b.uploaded)),
+  ];
+  groups.sort(
+    (a, b) => (b.first.size * (b.length - 1)).compareTo(
+      a.first.size * (a.length - 1),
+    ),
+  );
+  return groups;
+}
+
+/// Photos and videos taken on this day in earlier years, newest year first.
+List<({int yearsAgo, List<StoredFile> files})> onThisDay(
+  Iterable<StoredFile> files,
+  DateTime now,
+) {
+  final byYear = <int, List<StoredFile>>{};
+  for (final f in files) {
+    if (f.kind != FileKind.image && f.kind != FileKind.video) continue;
+    final d = f.date;
+    if (d.month == now.month && d.day == now.day && d.year < now.year) {
+      (byYear[now.year - d.year] ??= []).add(f);
+    }
+  }
+  final keys = byYear.keys.toList()..sort();
+  return [for (final k in keys) (yearsAgo: k, files: byYear[k]!)];
 }

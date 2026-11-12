@@ -25,6 +25,7 @@ Future<void> main() async {
     service.lastError = '$e';
     service.authState.value = 'error';
   }
+  themeMode.value = parseThemeMode(await service.readSetting('theme'));
   runApp(const TeDriveApp());
 }
 
@@ -33,7 +34,15 @@ class TeDriveApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: themeMode,
+      builder: (context, mode, _) => _app(mode),
+    );
+  }
+
+  Widget _app(ThemeMode mode) {
     return MaterialApp(
+      themeMode: mode,
       title: 'TeDrive',
       debugShowCheckedModeBanner: false,
       theme: tedriveTheme(Brightness.light),

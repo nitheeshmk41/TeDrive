@@ -1,5 +1,15 @@
 # Changelog
 
+## v2-beta
+
+- Multi-select with bulk star, move, share, download and move to trash.
+- Trash with Undo and restore; items are deleted for good after 30 days.
+- Starred files, and Recent, Large, Duplicates and Offline views in Files.
+- "On this day" memories in Photos.
+- Light and dark theme toggle.
+- Country picker on the sign-in screen.
+- macOS disk image (.dmg).
+
 ## Unreleased
 
 ### Fixed

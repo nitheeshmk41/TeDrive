@@ -678,6 +678,10 @@ class TeDriveService {
   Future<void> rename(int chatId, StoredFile file, String newName) =>
       _setCaption(chatId, file.messageId, file.renamed(newName).caption);
 
+  /// Replaces a file's caption (TeDrive's metadata for it).
+  Future<void> setCaption(int chatId, int messageId, String caption) =>
+      _setCaption(chatId, messageId, caption);
+
   Future<void> _setCaption(int chatId, int messageId, String caption) =>
       td.request({
         '@type': 'editMessageCaption',

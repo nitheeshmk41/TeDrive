@@ -121,8 +121,26 @@ class DriveController extends ChangeNotifier {
   int? _chatId;
   bool _premium = false;
 
-  /// Files in the drive, newest first.
-  List<StoredFile> files = const [];
+  /// Every file, including those in the trash, newest first.
+  List<StoredFile> allFiles = const [];
+
+  List<StoredFile>? _visible;
+  List<StoredFile>? _trash;
+
+  /// Files in the drive (not in the trash), newest first.
+  List<StoredFile> get files =>
+      _visible ??= allFiles.where((f) => !f.inTrash).toList();
+
+  /// Files in the trash, most recently deleted first.
+  List<StoredFile> get trash =>
+      _trash ??= allFiles.where((f) => f.inTrash).toList()
+        ..sort((a, b) => b.trashedAt!.compareTo(a.trashedAt!));
+
+  List<StoredFile> get starred => files.where((f) => f.starred).toList();
+
+  /// Files with a complete copy on this device.
+  List<StoredFile> get offline =>
+      files.where((f) => localExists(f.localPath)).toList();
 
   final List<UploadTask> uploads = [];
 
@@ -138,6 +156,8 @@ class DriveController extends ChangeNotifier {
 
   void _notify() {
     if (_disposed) return;
+    _visible = null;
+    _trash = null;
     notifyListeners();
     _scheduleCatalogue();
   }
@@ -180,14 +200,16 @@ class DriveController extends ChangeNotifier {
           return;
         }
         final gone = (u['message_ids'] as List).toSet();
-        if (files.any((f) => gone.contains(f.messageId))) {
-          files = files.where((f) => !gone.contains(f.messageId)).toList();
+        if (allFiles.any((f) => gone.contains(f.messageId))) {
+          allFiles = allFiles
+              .where((f) => !gone.contains(f.messageId))
+              .toList();
           _notify();
         }
       case 'updateMessageContent' || 'updateMessageEdited':
         if (u['chat_id'] != _chatId) return;
         final id = u['message_id'] as int;
-        if (!files.any((f) => f.messageId == id)) return;
+        if (!allFiles.any((f) => f.messageId == id)) return;
         _service.fetchFile(_chatId!, id).then((file) {
           if (file != null && !_disposed) _addOrReplace(file);
         });
@@ -195,12 +217,12 @@ class DriveController extends ChangeNotifier {
   }
 
   void _addOrReplace(StoredFile file) {
-    if (files.any((f) => f.messageId == file.messageId)) {
+    if (allFiles.any((f) => f.messageId == file.messageId)) {
       // Keep what this device knows about its own local copy.
       final local = _current(file).localPath;
       _replace(file.localPath == null ? file.withLocalPath(local) : file);
     } else {
-      files = sortNewestFirst([file, ...files]);
+      allFiles = sortNewestFirst([file, ...allFiles]);
       _notify();
     }
   }
@@ -218,11 +240,11 @@ class DriveController extends ChangeNotifier {
     try {
       _chatId ??= await _service.ensureChannel();
       _premium = await _service.isPremium();
-      files = sortNewestFirst(
+      allFiles = sortNewestFirst(
         await _service.history(
           _chatId!,
           onPage: (soFar) {
-            files = sortNewestFirst(soFar);
+            allFiles = sortNewestFirst(soFar);
             _notify();
           },
         ),
@@ -234,6 +256,51 @@ class DriveController extends ChangeNotifier {
       _notify();
       _pump();
     }
+    final expired = expiredTrash(allFiles, DateTime.now());
+    if (expired.isNotEmpty && error == null) {
+      deleteForever(expired).catchError((_) {});
+    }
+  }
+
+  // ---- Star, trash and bulk actions ----
+
+  /// Rewrites each file's caption with [change]. Stops at the first error
+  /// and reports how many were done before it.
+  Future<int> _editAll(
+    Iterable<StoredFile> targets,
+    StoredFile Function(StoredFile) change,
+  ) async {
+    var done = 0;
+    for (final f in targets) {
+      final updated = change(_current(f));
+      await _service.setCaption(_chatId!, updated.messageId, updated.caption);
+      _replace(updated);
+      done++;
+    }
+    return done;
+  }
+
+  Future<int> setStarred(Iterable<StoredFile> targets, bool on) =>
+      _editAll(targets, (f) => f.withStar(on));
+
+  /// Moves files to the trash. They disappear from every view and device,
+  /// and can be restored for [trashDays] days.
+  Future<int> moveToTrash(Iterable<StoredFile> targets) {
+    final now = DateTime.now();
+    return _editAll(targets, (f) => f.withTrashedAt(now));
+  }
+
+  Future<int> restore(Iterable<StoredFile> targets) =>
+      _editAll(targets, (f) => f.withTrashedAt(null));
+
+  Future<int> moveAllToFolder(Iterable<StoredFile> targets, String? folder) =>
+      _editAll(targets, (f) => f.withFolder(normalizeFolder(folder)));
+
+  /// Deletes files from Telegram for good. Cannot be undone.
+  Future<void> deleteForever(List<StoredFile> targets) async {
+    for (final f in targets) {
+      await delete(f);
+    }
   }
 
   /// Folder names in use, alphabetical.
@@ -241,7 +308,7 @@ class DriveController extends ChangeNotifier {
 
   /// Size of every hashed file in the drive, by SHA-256.
   Map<String, int> get sizeBySha => {
-    for (final f in files)
+    for (final f in allFiles)
       if (f.sha256 != null) f.sha256!: f.size,
   };
 
@@ -249,8 +316,8 @@ class DriveController extends ChangeNotifier {
   /// after "free up space" removed the originals.
   void recheckLocalPaths() {
     if (kIsWeb) return;
-    files = [
-      for (final f in files)
+    allFiles = [
+      for (final f in allFiles)
         if (f.localPath != null && !File(f.localPath!).existsSync())
           f.withLocalPath(null)
         else
@@ -287,7 +354,7 @@ class DriveController extends ChangeNotifier {
   }
 
   /// The newest known state of [file] (its local path may have changed).
-  StoredFile _current(StoredFile file) => files.firstWhere(
+  StoredFile _current(StoredFile file) => allFiles.firstWhere(
     (f) => f.messageId == file.messageId,
     orElse: () => file,
   );
@@ -309,8 +376,8 @@ class DriveController extends ChangeNotifier {
   }
 
   void _replace(StoredFile updated) {
-    files = [
-      for (final f in files)
+    allFiles = [
+      for (final f in allFiles)
         if (f.messageId == updated.messageId) updated else f,
     ];
     _notify();
@@ -476,7 +543,7 @@ class DriveController extends ChangeNotifier {
       final sha = task.knownSha ?? await sha256OfFile(path);
       task.sha = sha;
       if (task._cancelRequested) throw UploadCancelled();
-      if (files.any((f) => f.sha256 == sha)) {
+      if (allFiles.any((f) => f.sha256 == sha)) {
         task
           ..status = UploadStatus.skipped
           ..message = 'Already in your drive';
@@ -515,9 +582,9 @@ class DriveController extends ChangeNotifier {
       );
       // A private copy is removed below, so it is not an offline copy. A
       // backed-up original stays where it is and counts as one.
-      files = sortNewestFirst([
+      allFiles = sortNewestFirst([
         stored.withLocalPath(task.deleteAfter ? null : directPath),
-        ...files.where((f) => f.messageId != stored.messageId),
+        ...allFiles.where((f) => f.messageId != stored.messageId),
       ]);
       task
         ..status = UploadStatus.done
@@ -578,7 +645,7 @@ class DriveController extends ChangeNotifier {
       final sha = await sha256OfStream(source.readAsByteStream());
       task.sha = sha;
       if (task._cancelRequested) throw UploadCancelled();
-      if (files.any((f) => f.sha256 == sha)) {
+      if (allFiles.any((f) => f.sha256 == sha)) {
         task
           ..status = UploadStatus.skipped
           ..message = 'Already in your drive';
@@ -605,9 +672,9 @@ class DriveController extends ChangeNotifier {
           }
         },
       );
-      files = sortNewestFirst([
+      allFiles = sortNewestFirst([
         stored.withLocalPath(null),
-        ...files.where((f) => f.messageId != stored.messageId),
+        ...allFiles.where((f) => f.messageId != stored.messageId),
       ]);
       task
         ..status = UploadStatus.done
@@ -746,7 +813,7 @@ class DriveController extends ChangeNotifier {
     }
     await _service.removeOfflineCopy(file.fileId);
     await _service.deleteFromDrive(_chatId!, [file.messageId]);
-    files = files.where((f) => f.messageId != file.messageId).toList();
+    allFiles = allFiles.where((f) => f.messageId != file.messageId).toList();
     _notify();
   }
 }

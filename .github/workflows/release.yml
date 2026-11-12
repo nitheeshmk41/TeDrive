@@ -335,6 +335,11 @@ jobs:
           codesign --force --deep --sign - "$app"
           mkdir -p artifacts
           ditto -c -k --keepParent "$app" artifacts/TeDrive-macos-arm64.zip
+          # A disk image with the app and a shortcut to Applications.
+          mkdir -p dmg
+          cp -R "$app" dmg/TeDrive.app
+          ln -s /Applications dmg/Applications
+          hdiutil create -volname TeDrive -srcfolder dmg -ov -format UDZO artifacts/TeDrive-macos-arm64.dmg
       - uses: actions/upload-artifact@v4
         with:
           name: macos
@@ -374,7 +379,8 @@ jobs:
             | `android-arm32.apk` | Older 32-bit Android phones |
             | `windows-x64.zip` | Windows 10 and 11. Unzip and run `TeDrive.exe`. |
             | `linux-x64.tar.gz` | Linux (Ubuntu 22.04 or newer and similar). Unpack and run `TeDrive/tedrive`. |
-            | `macos-arm64.zip` | Macs with Apple Silicon. Not notarised: right-click the app and choose Open the first time. |
+            | `macos-arm64.dmg` | Macs with Apple Silicon. Open it and drag TeDrive to Applications. Not notarised: right-click the app and choose Open the first time. |
+            | `macos-arm64.zip` | The same Mac app as a zip. |
             | `web.zip` | The web app, to host yourself. It also runs at https://tedrive.vercel.app |
 
             A file missing from this list did not build for this release.

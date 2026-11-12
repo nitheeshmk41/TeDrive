@@ -1,5 +1,14 @@
 import 'package:flutter/material.dart';
 
+/// Light, dark or follow the system. Saved as the "theme" setting.
+final themeMode = ValueNotifier<ThemeMode>(ThemeMode.system);
+
+ThemeMode parseThemeMode(String? v) => switch (v) {
+  'light' => ThemeMode.light,
+  'dark' => ThemeMode.dark,
+  _ => ThemeMode.system,
+};
+
 /// The blue of the paper plane in the app icon.
 const brandBlue = Color(0xFF1677F0);
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../countries.dart';
 import '../tedrive_service.dart';
 import 'theme.dart';
 
@@ -526,6 +527,22 @@ class SignInPage extends StatefulWidget {
 
 class _SignInPageState extends State<SignInPage> {
   final _input = TextEditingController();
+
+  /// Starts on the country this device is set to.
+  Country _country = countryForIso(
+    WidgetsBinding.instance.platformDispatcher.locale.countryCode,
+  );
+
+  Future<void> _pickCountry() async {
+    final picked = await showModalBottomSheet<Country>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => const _CountrySheet(),
+    );
+    if (picked != null) setState(() => _country = picked);
+  }
+
   bool _busy = false;
   bool _showPassword = false;
   String? _error;
@@ -549,8 +566,7 @@ class _SignInPageState extends State<SignInPage> {
       switch (widget.state) {
         case 'waitPhoneNumber':
           // Telegram wants digits with a leading +.
-          final digits = value.replaceAll(RegExp(r'[^0-9]'), '');
-          await _service.setPhoneNumber('+$digits');
+          await _service.setPhoneNumber(fullPhoneNumber(_country, value));
         case 'waitCode':
           await _service.checkCode(value.replaceAll(RegExp(r'\s'), ''));
         case 'waitPassword':
@@ -595,8 +611,17 @@ class _SignInPageState extends State<SignInPage> {
         ],
         decoration: InputDecoration(
           labelText: 'Phone number',
-          hintText: '+91 98765 43210',
-          prefixIcon: const Icon(Icons.phone_outlined),
+          hintText: '98765 43210',
+          prefixIcon: Padding(
+            padding: const EdgeInsets.only(left: 6, right: 2),
+            child: TextButton(
+              onPressed: _pickCountry,
+              child: Text(
+                '${_country.flag}  +${_country.code}',
+                style: theme.textTheme.titleMedium,
+              ),
+            ),
+          ),
           errorText: _error,
           errorMaxLines: 4,
         ),
@@ -756,6 +781,58 @@ class ProblemPage extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Searchable list of countries and their calling codes.
+class _CountrySheet extends StatefulWidget {
+  const _CountrySheet();
+
+  @override
+  State<_CountrySheet> createState() => _CountrySheetState();
+}
+
+class _CountrySheetState extends State<_CountrySheet> {
+  String _query = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final shown = searchCountries(_query);
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.8,
+      maxChildSize: 0.95,
+      builder: (context, scroll) => Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: TextField(
+              autofocus: true,
+              decoration: const InputDecoration(
+                hintText: 'Search country or code',
+                prefixIcon: Icon(Icons.search),
+              ),
+              onChanged: (v) => setState(() => _query = v),
+            ),
+          ),
+          Expanded(
+            child: ListView.builder(
+              controller: scroll,
+              itemCount: shown.length,
+              itemBuilder: (context, i) {
+                final c = shown[i];
+                return ListTile(
+                  leading: Text(c.flag, style: const TextStyle(fontSize: 24)),
+                  title: Text(c.name),
+                  trailing: Text('+${c.code}'),
+                  onTap: () => Navigator.pop(context, c),
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -25,7 +25,13 @@ Removed for good: email/password accounts, password-protected or expiring links,
 | Live sync between devices, uploading device shown | Implemented |
 | Account page: storage by type and device, cache limit | Implemented |
 | Android, Windows, Linux, macOS and web builds | Implemented |
-| Web app with real Telegram sign-in | Implemented, not yet verified |
+| Web app with real Telegram sign-in | Implemented; library loads and reaches the phone step |
+| Multi-select, bulk star / move / share / download / trash | Implemented |
+| Trash with restore, auto-delete after 30 days | Implemented |
+| Starred, Recent, Large, Duplicates, Offline views | Implemented |
+| On this day memories | Implemented |
+| Light / dark theme toggle | Implemented |
+| Country picker on sign-in | Implemented |
 
 ## Suggested next features
 
@@ -33,23 +39,16 @@ Ordered by how much a user would notice, all without a backend. Pick from the to
 
 | # | Feature | Why it helps | Effort |
 | :--- | :--- | :--- | :--- |
-| 1 | **Multi-select and bulk actions** (delete, move to album, share, download) | Cleaning up 200 photos one by one is unusable | Medium |
-| 2 | **Trash with restore** (30 days) | Protects against deleting by mistake. Done by moving a file's message to a hidden "TeDrive Trash" channel and back. | Medium |
-| 3 | **Starred / Favorites** | Quick access; one caption key (`star:1`) | Small |
-| 4 | **Recent and Large files views** | Find what filled the phone; pure filtering of the list | Small |
-| 5 | **Find duplicates** screen | Frees space; SHA-256 is already stored on every file | Small |
 | 6 | **Nested folders** | Matches how people organise documents | Medium |
 | 7 | **EXIF details** (camera, date, GPS) and **photo map** | Google Photos feel; read from the file on device | Medium |
-| 8 | **Memories** ("On this day") | A reason to open the app; just date filtering | Small |
 | 9 | **Upload queue that survives a restart**, backup restart after reboot | Reliability on phones that kill apps | Medium |
-| 10 | **Offline section** (pinned files and albums) | Works without internet; extends "Keep on this device" | Small |
 | 11 | **App lock** (PIN or fingerprint) | Privacy if the phone is handed over | Small |
 | 12 | **Encrypted vault** (files encrypted on the device before upload) | Real privacy for Aadhaar, PAN, certificates; files unreadable even to Telegram. Needs a careful recovery design: lose the passphrase, lose the files. | Large |
 | 13 | **Nearby transfer** (phone to laptop over Wi-Fi, QR pairing) | Move big files without uploading | Large |
 | 14 | **Album share link** | Send a whole trip's photos as one link | Medium |
 | 15 | **Slideshow, rotate, crop** | Polish | Small to medium |
 
-My recommendation: 1 to 5 first. They fix the daily frustrations and are mostly small.
+Next recommended: app lock (11), upload queue that survives a restart (9), then nested folders (6).
 
 ## Known problems
 

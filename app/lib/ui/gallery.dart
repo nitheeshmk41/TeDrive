@@ -107,12 +107,20 @@ class FileGridTile extends StatelessWidget {
     required this.file,
     required this.onTap,
     required this.onLongPress,
+    this.selected = false,
+    this.selecting = false,
   });
 
   final DriveController drive;
   final StoredFile file;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
+
+  /// Part of the current multi-selection.
+  final bool selected;
+
+  /// A multi-selection is in progress, so every tile shows a check circle.
+  final bool selecting;
 
   @override
   Widget build(BuildContext context) {
@@ -150,10 +158,38 @@ class FileGridTile extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              if (isMedia)
-                FileThumb(drive: drive, file: file, fallback: nameCard)
-              else
-                nameCard,
+              AnimatedPadding(
+                duration: const Duration(milliseconds: 120),
+                padding: EdgeInsets.all(selected ? 10 : 0),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(selected ? 10 : 0),
+                  child: isMedia
+                      ? FileThumb(drive: drive, file: file, fallback: nameCard)
+                      : nameCard,
+                ),
+              ),
+              if (file.starred)
+                const Align(
+                  alignment: Alignment.bottomRight,
+                  child: Padding(
+                    padding: EdgeInsets.all(4),
+                    child: _Badge(Icons.star),
+                  ),
+                ),
+              if (selecting)
+                Align(
+                  alignment: Alignment.topLeft,
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Icon(
+                      selected ? Icons.check_circle : Icons.circle_outlined,
+                      color: selected
+                          ? theme.colorScheme.primary
+                          : Colors.white,
+                      shadows: const [Shadow(blurRadius: 4)],
+                    ),
+                  ),
+                ),
               if (file.kind == FileKind.video)
                 const Align(
                   alignment: Alignment.bottomLeft,
@@ -212,7 +248,9 @@ List<Widget> gallerySlivers({
   required List<StoredFile> files,
   required void Function(StoredFile) onTap,
   required void Function(StoredFile) onLongPress,
+  bool Function(StoredFile)? isSelected,
 }) {
+  final selecting = isSelected != null;
   final theme = Theme.of(context);
   return [
     for (final group in groupByDay(files)) ...[
@@ -239,6 +277,8 @@ List<Widget> gallerySlivers({
               file: file,
               onTap: () => onTap(file),
               onLongPress: () => onLongPress(file),
+              selecting: selecting,
+              selected: isSelected?.call(file) ?? false,
             );
           },
         ),
