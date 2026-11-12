@@ -5,26 +5,57 @@
 **/.pub/
 **/.pub-cache/
 **/coverage/
+**/doc/api/
 .widget_preview/
 
-# Build artifacts & packages
+# Build artifacts & binaries
 *.apk
 *.aab
 dist/*.apk
+*.symbols
+*.map.json
+**/android/app/debug/
+**/android/app/profile/
+**/android/app/release/
+
+# Android build & local files
+**/android/.gradle/
+**/android/local.properties
+**/android/GeneratedPluginRegistrant.java
+**/android/.cxx/
+**/android/captures/
+gradle-wrapper.jar
+**/gradlew
+**/gradlew.bat
+
+# Windows build files
+**/windows/flutter/ephemeral/
+**/windows/x64/
+**/windows/x86/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
 
 # IDE & OS
 .idea/
 *.iml
+*.ipr
+*.iws
 .vscode/
 .DS_Store
 *.log
 *.class
+*.pyc
+*.swp
+.history/
 
-# Secrets
+# Secrets & Keys (Never commit)
 secrets.json
+key.properties
 *.key
 *.keystore
-
+*.jks
 
 # Local tool settings
 .claude/
