@@ -21,7 +21,6 @@ class StoredFile {
     required this.name,
     required this.size,
     required this.date,
-    DateTime? uploaded,
     this.sha256,
     this.folder,
     this.taken,
@@ -33,6 +32,12 @@ class StoredFile {
     this.localPath,
     this.thumbFileId,
     this.miniThumb,
+    this.location,
+    this.camera,
+    this.isVault = false,
+    this.albumShareLink,
+    DateTime? uploaded,
+    // ignore: prefer_initializing_formals
   }) : _uploaded = uploaded;
 
   final int messageId;
@@ -91,6 +96,18 @@ class StoredFile {
   /// thumbnail loads.
   final String? miniThumb;
 
+  /// GPS location where the photo was taken (latitude and longitude).
+  final ({double lat, double lng})? location;
+
+  /// Camera make and model that took the photo.
+  final String? camera;
+
+  /// True if the file is encrypted in the vault.
+  final bool isVault;
+
+  /// Shared album link if part of a public album.
+  final String? albumShareLink;
+
   FileKind get kind => kindOf(name);
 
   StoredFile _copy({
@@ -100,6 +117,10 @@ class StoredFile {
     String? Function()? shareLink,
     bool? starred,
     DateTime? Function()? trashedAt,
+    ({double lat, double lng})? Function()? location,
+    String? Function()? camera,
+    bool? isVault,
+    String? Function()? albumShareLink,
   }) => StoredFile(
     messageId: messageId,
     fileId: fileId,
@@ -118,6 +139,10 @@ class StoredFile {
     localPath: localPath == null ? this.localPath : localPath(),
     thumbFileId: thumbFileId,
     miniThumb: miniThumb,
+    location: location == null ? this.location : location(),
+    camera: camera == null ? this.camera : camera(),
+    isVault: isVault ?? this.isVault,
+    albumShareLink: albumShareLink == null ? this.albumShareLink : albumShareLink(),
   );
 
   StoredFile withLocalPath(String? path) => _copy(localPath: () => path);
@@ -130,6 +155,12 @@ class StoredFile {
   StoredFile withShareLink(String? link) => _copy(shareLink: () => link);
   StoredFile withStar(bool on) => _copy(starred: on);
   StoredFile withTrashedAt(DateTime? at) => _copy(trashedAt: () => at);
+  StoredFile withLocation(({double lat, double lng})? loc) =>
+      _copy(location: () => loc);
+  StoredFile withCamera(String? cam) => _copy(camera: () => cam);
+  StoredFile withVault(bool vault) => _copy(isVault: vault);
+  StoredFile withAlbumShare(String? link) =>
+      _copy(albumShareLink: () => link);
 
   /// The caption TeDrive writes for this file.
   String get caption => buildCaption(
@@ -141,6 +172,10 @@ class StoredFile {
     share: shareLink,
     starred: starred,
     trashedAt: trashedAt,
+    location: location,
+    camera: camera,
+    isVault: isVault,
+    albumShare: albumShareLink,
   );
 
   /// Turns a TDLib message into a [StoredFile], or null if it has no file.
@@ -202,6 +237,18 @@ class StoredFile {
       _namePattern.firstMatch(caption)?.group(1) ?? '',
       original: uploadedName,
     );
+    final geoMatch = _geoPattern.firstMatch(caption);
+    final location = geoMatch != null
+        ? (
+            lat: double.tryParse(geoMatch.group(1)!) ?? 0.0,
+            lng: double.tryParse(geoMatch.group(2)!) ?? 0.0,
+          )
+        : null;
+    final camera = _cameraPattern.firstMatch(caption)?.group(1)?.trim();
+    final isVault = _vaultPattern.hasMatch(caption);
+    final albumShare = parseShareLink(
+      _albumSharePattern.firstMatch(caption)?.group(1),
+    )?.link;
     return StoredFile(
       messageId: id,
       fileId: f['id'] as int,
@@ -223,6 +270,10 @@ class StoredFile {
           : null,
       thumbFileId: thumb,
       miniThumb: mini?['data'] as String?,
+      location: location,
+      camera: camera,
+      isVault: isVault,
+      albumShareLink: albumShare,
     );
   }
 
@@ -255,6 +306,10 @@ String buildCaption({
   String? share,
   bool starred = false,
   DateTime? trashedAt,
+  ({double lat, double lng})? location,
+  String? camera,
+  bool isVault = false,
+  String? albumShare,
 }) => [
   if (sha256 != null) 'sha256:$sha256',
   if (normalizeFolder(folder) != null) 'folder:${normalizeFolder(folder)}',
@@ -264,12 +319,25 @@ String buildCaption({
   if (parseShareLink(share) != null) 'share:${parseShareLink(share)!.link}',
   if (starred) 'star:1',
   if (trashedAt != null) 'trash:${trashedAt.millisecondsSinceEpoch ~/ 1000}',
+  if (location != null)
+    'geo:${location.lat.toStringAsFixed(6)},${location.lng.toStringAsFixed(6)}',
+  if (camera != null && camera.trim().isNotEmpty) 'camera:${camera.trim()}',
+  if (isVault) 'vault:1',
+  if (parseShareLink(albumShare) != null)
+    'albumshare:${parseShareLink(albumShare)!.link}',
 ].join('\n');
 
 final _namePattern = RegExp(r'^name:(.*)$', multiLine: true);
 final _sharePattern = RegExp(r'^share:(.*)$', multiLine: true);
 final _starPattern = RegExp(r'^star:1$', multiLine: true);
 final _trashPattern = RegExp(r'^trash:(\d{1,12})$', multiLine: true);
+final _geoPattern = RegExp(
+  r'^geo:(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$',
+  multiLine: true,
+);
+final _cameraPattern = RegExp(r'^camera:(.*)$', multiLine: true);
+final _vaultPattern = RegExp(r'^vault:1$', multiLine: true);
+final _albumSharePattern = RegExp(r'^albumshare:(.*)$', multiLine: true);
 
 DateTime? _parseSeconds(String? s) {
   final v = int.tryParse(s ?? '');
@@ -338,7 +406,86 @@ String? normalizeFolder(String? name) {
   if (name == null) return null;
   final oneLine = name.replaceAll(RegExp(r'\s+'), ' ').trim();
   if (oneLine.isEmpty) return null;
-  return oneLine.length > 40 ? oneLine.substring(0, 40).trim() : oneLine;
+  final cleaned = oneLine
+      .replaceAll(r'\', '/')
+      .split('/')
+      .map((s) => s.trim())
+      .where((s) => s.isNotEmpty && s != '.' && s != '..')
+      .join('/');
+  if (cleaned.isEmpty) return null;
+  return cleaned.length > 40 ? cleaned.substring(0, 40).trim() : cleaned;
+}
+
+/// The parent folder of [folder], or null if it is at the root level.
+String? parentFolder(String? folder) {
+  final norm = normalizeFolder(folder);
+  if (norm == null) return null;
+  final lastSlash = norm.lastIndexOf('/');
+  if (lastSlash <= 0) return null;
+  return norm.substring(0, lastSlash);
+}
+
+/// The base name (leaf segment) of a folder path.
+String folderBaseName(String folder) {
+  final norm = normalizeFolder(folder) ?? folder.trim();
+  final lastSlash = norm.lastIndexOf('/');
+  return lastSlash < 0 ? norm : norm.substring(lastSlash + 1);
+}
+
+/// Cumulative breadcrumb segments for a nested folder path.
+/// Example: "Documents/Work/Invoices" -> ["Documents", "Documents/Work", "Documents/Work/Invoices"]
+List<String> folderBreadcrumbs(String folder) {
+  final norm = normalizeFolder(folder);
+  if (norm == null) return const [];
+  final parts = norm.split('/');
+  final crumbs = <String>[];
+  var path = '';
+  for (final part in parts) {
+    path = path.isEmpty ? part : '$path/$part';
+    crumbs.add(path);
+  }
+  return crumbs;
+}
+
+/// Direct child subfolders under [parent] (or top-level folders if [parent] is null).
+List<String> directSubfolders(Iterable<StoredFile> files, [String? parent]) {
+  final normParent = normalizeFolder(parent);
+  final prefix = normParent == null ? '' : '$normParent/';
+  final children = <String>{};
+  for (final f in files) {
+    final folder = f.folder;
+    if (folder == null) continue;
+    if (normParent == null) {
+      final slash = folder.indexOf('/');
+      children.add(slash < 0 ? folder : folder.substring(0, slash));
+    } else if (folder.startsWith(prefix) && folder.length > prefix.length) {
+      final rest = folder.substring(prefix.length);
+      final slash = rest.indexOf('/');
+      final segment = slash < 0 ? rest : rest.substring(0, slash);
+      children.add('$prefix$segment');
+    }
+  }
+  final list = children.toList();
+  list.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+  return list;
+}
+
+/// Files directly inside [folder], or optionally in any subfolder if [recursive] is true.
+List<StoredFile> filesInFolder(
+  Iterable<StoredFile> files,
+  String? folder, {
+  bool recursive = false,
+}) {
+  final norm = normalizeFolder(folder);
+  if (norm == null) {
+    return files.where((f) => f.folder == null).toList();
+  }
+  final prefix = '$norm/';
+  return files.where((f) {
+    if (f.folder == null) return false;
+    if (f.folder == norm) return true;
+    return recursive && f.folder!.startsWith(prefix);
+  }).toList();
 }
 
 /// Folder names in use, sorted alphabetically ignoring case.
@@ -696,3 +843,16 @@ List<({int yearsAgo, List<StoredFile> files})> onThisDay(
   final keys = byYear.keys.toList()..sort();
   return [for (final k in keys) (yearsAgo: k, files: byYear[k]!)];
 }
+
+/// Photos and videos that have GPS coordinates.
+List<StoredFile> geotaggedFiles(Iterable<StoredFile> files) => [
+  for (final f in files)
+    if (f.location != null && !f.inTrash) f,
+];
+
+/// Files stored in the encrypted vault.
+List<StoredFile> vaultFiles(Iterable<StoredFile> files) => [
+  for (final f in files)
+    if (f.isVault && !f.inTrash) f,
+];
+

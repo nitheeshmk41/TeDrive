@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../drive_controller.dart';
 import '../stored_file.dart';
@@ -342,6 +343,11 @@ class _ImageViewerPageState extends State<ImageViewerPage> {
         ),
         actions: [
           IconButton(
+            tooltip: 'Details & location',
+            icon: const Icon(Icons.info_outline),
+            onPressed: () => _showDetails(context, file),
+          ),
+          IconButton(
             tooltip: 'Share or send',
             icon: const Icon(Icons.share_outlined),
             onPressed: () => widget.onShare(file),
@@ -365,6 +371,237 @@ class _ImageViewerPageState extends State<ImageViewerPage> {
       ),
     );
   }
+
+  void _showDetails(BuildContext context, StoredFile file) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => _PhotoDetailsSheet(drive: widget.drive, file: file),
+    );
+  }
+}
+
+class _PhotoDetailsSheet extends StatelessWidget {
+  const _PhotoDetailsSheet({required this.drive, required this.file});
+  final DriveController drive;
+  final StoredFile file;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final loc = file.location;
+
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Photo Details',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                if (file.isVault)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: scheme.primaryContainer,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.lock_rounded, size: 14, color: scheme.onPrimaryContainer),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Encrypted Vault',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: scheme.onPrimaryContainer,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _infoRow(context, Icons.insert_drive_file_outlined, 'File name', file.name),
+            _infoRow(context, Icons.data_usage_outlined, 'Size', formatBytes(file.size)),
+            _infoRow(
+              context,
+              Icons.calendar_today_outlined,
+              file.taken != null ? 'Date captured' : 'Date uploaded',
+              formatDate(file.date),
+            ),
+            if (file.folder != null)
+              _infoRow(context, Icons.folder_outlined, 'Album', file.folder!),
+            if (file.camera != null && file.camera!.isNotEmpty)
+              _infoRow(context, Icons.camera_alt_outlined, 'Camera', file.camera!),
+            if (file.device != null)
+              _infoRow(context, Icons.devices_outlined, 'Uploaded from', file.device!),
+            
+            // Map section
+            if (loc != null) ...[
+              const Divider(height: 32),
+              Row(
+                children: [
+                  Icon(Icons.location_on_outlined, color: scheme.primary),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Location',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    '${loc.lat.toStringAsFixed(4)}, ${loc.lng.toStringAsFixed(4)}',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      fontFamily: 'monospace',
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              // Visual mini map container
+              Container(
+                height: 160,
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  color: scheme.surfaceContainerHighest,
+                  border: Border.all(color: scheme.outlineVariant),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      // Stylized Map background grid
+                      CustomPaint(
+                        size: const Size(double.infinity, 160),
+                        painter: _MapGridPainter(scheme: scheme),
+                      ),
+                      Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.location_pin, color: scheme.error, size: 40),
+                          const SizedBox(height: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: scheme.surface.withValues(alpha: 0.85),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              'GPS: ${loc.lat.toStringAsFixed(5)}, ${loc.lng.toStringAsFixed(5)}',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: scheme.onSurface,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.tonalIcon(
+                  icon: const Icon(Icons.map_outlined),
+                  label: const Text('Open in Maps'),
+                  onPressed: () {
+                    final url = 'https://www.google.com/maps/search/?api=1&query=${loc.lat},${loc.lng}';
+                    Clipboard.setData(ClipboardData(text: url));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Maps link copied to clipboard')),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _infoRow(BuildContext context, IconData icon, String label, String value) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 20, color: theme.colorScheme.onSurfaceVariant),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                Text(
+                  value,
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MapGridPainter extends CustomPainter {
+  const _MapGridPainter({required this.scheme});
+  final ColorScheme scheme;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final roadPaint = Paint()
+      ..color = scheme.outlineVariant.withValues(alpha: 0.4)
+      ..strokeWidth = 3;
+    final gridPaint = Paint()
+      ..color = scheme.outlineVariant.withValues(alpha: 0.15)
+      ..strokeWidth = 1;
+
+    // Draw grid lines
+    for (var x = 0.0; x < size.width; x += 30) {
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), gridPaint);
+    }
+    for (var y = 0.0; y < size.height; y += 30) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
+    }
+
+    // Stylized roads
+    canvas.drawLine(Offset(0, size.height * 0.45), Offset(size.width, size.height * 0.65), roadPaint);
+    canvas.drawLine(Offset(size.width * 0.3, 0), Offset(size.width * 0.6, size.height), roadPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _FullImage extends StatefulWidget {

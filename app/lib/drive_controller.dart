@@ -7,11 +7,13 @@ import 'package:path_provider/path_provider.dart';
 
 import 'local_files.dart';
 import 'media_server.dart';
+import 'persisted_queue.dart';
 import 'picker_catalogue.dart';
 import 'stored_file.dart';
 import 'td/td_client.dart' show TdError;
 import 'tedrive_service.dart';
 import 'thumbnailer.dart';
+import 'vault_service.dart';
 
 enum UploadStatus {
   queued,
@@ -26,14 +28,19 @@ enum UploadStatus {
 /// One picked file on its way to the drive.
 class UploadTask {
   /// A file chosen in the file picker. It is copied before upload.
-  UploadTask(PlatformFile this.source, {this.folder})
-    : name = source.name,
-      size = source.lengthSync(),
-      directPath = null,
-      taken = null,
-      knownSha = null,
-      fromBackup = false,
-      deleteAfter = false;
+  UploadTask(
+    PlatformFile this.source, {
+    this.folder,
+    this.isVault = false,
+    this.location,
+    this.camera,
+  })  : name = source.name,
+        size = source.lengthSync(),
+        directPath = null,
+        taken = null,
+        knownSha = null,
+        fromBackup = false,
+        deleteAfter = false;
 
   /// A photo or video read straight from the phone's storage by backup.
   UploadTask.fromPath(
@@ -45,6 +52,9 @@ class UploadTask {
     this.knownSha,
     this.fromBackup = true,
     this.deleteAfter = false,
+    this.isVault = false,
+    this.location,
+    this.camera,
   }) : source = null;
 
   final PlatformFile? source;
@@ -68,6 +78,15 @@ class UploadTask {
   /// The file at [directPath] is a temporary copy to remove afterwards
   /// (a file another app shared into TeDrive).
   final bool deleteAfter;
+
+  /// Encrypt on device before uploading to vault.
+  final bool isVault;
+
+  /// Geotag location (latitude, longitude).
+  final ({double lat, double lng})? location;
+
+  /// Camera make/model.
+  final String? camera;
 
   /// The file's SHA-256, set once it has been computed.
   String? sha;
@@ -108,6 +127,9 @@ class DownloadCancelled implements Exception {
 /// downloads in progress.
 class DriveController extends ChangeNotifier {
   DriveController(this._service) {
+    if (!kIsWeb) {
+      PersistedUploadQueue.instance.directoryProvider ??= getApplicationSupportDirectory;
+    }
     _updates = _service.td.updates.listen(_onUpdate);
   }
 
@@ -141,6 +163,13 @@ class DriveController extends ChangeNotifier {
   /// Files with a complete copy on this device.
   List<StoredFile> get offline =>
       files.where((f) => localExists(f.localPath)).toList();
+
+  /// Files stored in the encrypted vault.
+  List<StoredFile> get vault => files.where((f) => f.isVault).toList();
+
+  /// Files with geotagged GPS location.
+  List<StoredFile> get geotagged =>
+      files.where((f) => f.location != null).toList();
 
   final List<UploadTask> uploads = [];
 
@@ -254,12 +283,68 @@ class DriveController extends ChangeNotifier {
     } finally {
       loading = false;
       _notify();
+      _restorePersistedUploads();
       _pump();
     }
     final expired = expiredTrash(allFiles, DateTime.now());
     if (expired.isNotEmpty && error == null) {
       deleteForever(expired).catchError((_) {});
     }
+  }
+
+  Future<void> _restorePersistedUploads() async {
+    if (kIsWeb) return;
+    try {
+      final saved = await PersistedUploadQueue.instance.load();
+      for (final item in saved) {
+        if (!uploads.any((u) => u.directPath == item.path)) {
+          enqueuePath(
+            item.path,
+            name: item.name,
+            size: item.size,
+            folder: item.folder,
+            taken: item.taken,
+            knownSha: item.knownSha,
+            isVault: item.isVault,
+            fromBackup: false,
+          );
+        }
+      }
+    } catch (_) {}
+  }
+
+  void _persistQueue() {
+    if (kIsWeb) return;
+    final items = <QueuedUploadItem>[
+      for (final u in uploads)
+        if (u.isActive && u.directPath != null)
+          QueuedUploadItem(
+            path: u.directPath!,
+            name: u.name,
+            size: u.size ?? 0,
+            folder: u.folder,
+            taken: u.taken,
+            knownSha: u.knownSha,
+            isVault: u.isVault,
+          ),
+    ];
+    PersistedUploadQueue.instance.save(items).catchError((_) {});
+  }
+
+  /// Shares all files in an album using a shared album link.
+  Future<String?> shareAlbum(String albumName) async {
+    final inAlbum = filterFiles(files, folder: albumName);
+    if (inAlbum.isEmpty) return null;
+    final first = inAlbum.first;
+    final link = await shareLink(first);
+    for (final f in inAlbum) {
+      if (f.albumShareLink != link) {
+        final updated = f.withAlbumShare(link);
+        await _service.setCaption(_chatId!, updated.messageId, updated.caption);
+        _replace(updated);
+      }
+    }
+    return link;
   }
 
   // ---- Star, trash and bulk actions ----
@@ -385,9 +470,27 @@ class DriveController extends ChangeNotifier {
 
   // ---- Uploads ----
 
-  void enqueue(List<PlatformFile> picked, {String? folder}) {
-    uploads.insertAll(0, picked.map((f) => UploadTask(f, folder: folder)));
+  void enqueue(
+    List<PlatformFile> picked, {
+    String? folder,
+    bool isVault = false,
+    ({double lat, double lng})? location,
+    String? camera,
+  }) {
+    uploads.insertAll(
+      0,
+      picked.map(
+        (f) => UploadTask(
+          f,
+          folder: folder,
+          isVault: isVault,
+          location: location,
+          camera: camera,
+        ),
+      ),
+    );
     _notify();
+    _persistQueue();
     _pump();
   }
 
@@ -402,6 +505,9 @@ class DriveController extends ChangeNotifier {
     String? knownSha,
     bool fromBackup = true,
     bool deleteAfter = false,
+    bool isVault = false,
+    ({double lat, double lng})? location,
+    String? camera,
   }) {
     final task = UploadTask.fromPath(
       path,
@@ -412,9 +518,13 @@ class DriveController extends ChangeNotifier {
       knownSha: knownSha,
       fromBackup: fromBackup,
       deleteAfter: deleteAfter,
+      isVault: isVault,
+      location: location,
+      camera: camera,
     );
     uploads.insert(0, task);
     _notify();
+    _persistQueue();
     _pump();
     return task;
   }
@@ -428,6 +538,7 @@ class DriveController extends ChangeNotifier {
       .._cancelRequested = false
       .._tempMessageId = null;
     _notify();
+    _persistQueue();
     _pump();
   }
 
@@ -439,6 +550,7 @@ class DriveController extends ChangeNotifier {
       task._finish();
       if (task.fromBackup) uploads.remove(task);
       _notify();
+      _persistQueue();
     } else if (task._tempMessageId != null) {
       await _service.cancelUpload(_chatId!, task._tempMessageId!);
     }
@@ -447,6 +559,7 @@ class DriveController extends ChangeNotifier {
   void clearFinished() {
     uploads.removeWhere((t) => !t.isActive);
     _notify();
+    _persistQueue();
   }
 
   /// Uploads queued tasks one at a time, oldest first.
@@ -532,6 +645,18 @@ class DriveController extends ChangeNotifier {
           await sink.close();
         }
       }
+      if (task.isVault) {
+        if (!VaultSession.instance.isUnlocked) {
+          return fail('Vault is locked. Unlock vault to upload.');
+        }
+        final encPath = '${dir.path}/vault_${safeFileName(task.name)}';
+        await VaultCipher.encryptFile(
+          source: File(path),
+          target: File(encPath),
+          passphrase: VaultSession.instance.currentPassphrase!,
+        );
+        path = encPath;
+      }
       final size = File(path).lengthSync();
       task.size = size;
       if (size == 0) return fail('The file is empty');
@@ -569,6 +694,9 @@ class DriveController extends ChangeNotifier {
         folder: task.folder,
         taken: task.taken,
         thumbnail: thumbnail,
+        location: task.location,
+        camera: task.camera,
+        isVault: task.isVault,
         onStarted: (id) {
           task._tempMessageId = id;
           if (task._cancelRequested) _service.cancelUpload(_chatId!, id);
@@ -622,6 +750,7 @@ class DriveController extends ChangeNotifier {
               task.status == UploadStatus.cancelled)) {
         uploads.remove(task);
       }
+      _persistQueue();
       _notify();
     }
   }

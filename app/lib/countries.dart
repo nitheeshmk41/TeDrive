@@ -144,7 +144,7 @@ List<Country> searchCountries(String query) {
   ];
 }
 
-/// The full number Telegram expects, "+<code><digits>". If the user typed a
+/// The full number Telegram expects, `+<code><digits>`. If the user typed a
 /// number starting with + or 00, that already includes a country code and
 /// wins over [country]. A leading trunk 0 ("098765...") is dropped.
 String fullPhoneNumber(Country country, String typed) {

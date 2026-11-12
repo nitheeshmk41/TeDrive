@@ -336,6 +336,10 @@ class TeDriveService {
     Thumbnail? thumbnail,
     Progress? onProgress,
     void Function(int tempMessageId)? onStarted,
+    ({double lat, double lng})? location,
+    String? camera,
+    bool isVault = false,
+    String? albumShare,
   }) => _sendAndWait(
     chatId,
     {
@@ -350,6 +354,10 @@ class TeDriveService {
           folder: folder,
           taken: taken,
           device: deviceName,
+          location: location,
+          camera: camera,
+          isVault: isVault,
+          albumShare: albumShare,
         ),
       },
       // Telegram makes no preview for videos sent as plain files, so

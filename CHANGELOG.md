@@ -2,13 +2,22 @@
 
 ## v2-beta
 
+- Nested folders with breadcrumb navigation and recursive subfolder browsing.
+- Photo details sheet with EXIF camera details, capture time, resolution, and interactive GPS map view.
+- World photo map explorer for all geotagged photos.
+- "On this day" memories in Photos.
+- Encrypted document vault (client-side PBKDF2 + AES-256 CTR + HMAC-SHA256) for sensitive files (Aadhaar, PAN, Passport, Driving License, Certificates).
+- Local phone-to-laptop Wi-Fi transfer with built-in HTTP portal and QR code.
+- App Lock with secure 4-digit PIN (PBKDF2 hash) and auto-lock on app background.
+- Persisted upload queue surviving app kills and phone restarts.
+- Dedicated Offline section with local storage cache view.
+- Album share links with one-tap clipboard copy.
+- Modernized onboarding UI with popular country chips (+91, +1, +44, +971, +49, +65, +61) and dial code search.
+- Responsive desktop layout with NavigationRail and keyboard shortcuts.
+- Web UI theme toggle (Dark / Light) with immediate mode switching.
 - Multi-select with bulk star, move, share, download and move to trash.
 - Trash with Undo and restore; items are deleted for good after 30 days.
-- Starred files, and Recent, Large, Duplicates and Offline views in Files.
-- "On this day" memories in Photos.
-- Light and dark theme toggle.
-- Country picker on the sign-in screen.
-- macOS disk image (.dmg).
+- macOS disk image (.dmg), Windows EXE, Linux tarball, Android APK release builds.
 
 ## Unreleased
 

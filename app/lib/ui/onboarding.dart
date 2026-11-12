@@ -795,28 +795,110 @@ class _CountrySheet extends StatefulWidget {
 }
 
 class _CountrySheetState extends State<_CountrySheet> {
+  final _searchController = TextEditingController();
   String _query = '';
+
+  static const _popularIsos = ['IN', 'US', 'GB', 'AE', 'CA', 'DE', 'SG', 'AU'];
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final shown = searchCountries(_query);
+    final popular = [for (final iso in _popularIsos) countryForIso(iso)];
+
     return DraggableScrollableSheet(
       expand: false,
-      initialChildSize: 0.8,
+      initialChildSize: 0.85,
       maxChildSize: 0.95,
       builder: (context, scroll) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+            child: Row(
+              children: [
+                Text(
+                  'Select Country',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  '${shown.length} countries',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
             child: TextField(
+              controller: _searchController,
               autofocus: true,
-              decoration: const InputDecoration(
-                hintText: 'Search country or code',
-                prefixIcon: Icon(Icons.search),
+              decoration: InputDecoration(
+                hintText: 'Search country name, ISO or code (e.g. +91, IN)',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _query.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() => _query = '');
+                        },
+                      )
+                    : null,
+                filled: true,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide.none,
+                ),
               ),
               onChanged: (v) => setState(() => _query = v),
             ),
           ),
+          if (_query.isEmpty) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
+              child: Text(
+                'POPULAR',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.1,
+                  color: scheme.primary,
+                ),
+              ),
+            ),
+            SizedBox(
+              height: 44,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                itemCount: popular.length,
+                itemBuilder: (context, i) {
+                  final c = popular[i];
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: ActionChip(
+                      avatar: Text(c.flag, style: const TextStyle(fontSize: 16)),
+                      label: Text('${c.iso} +${c.code}'),
+                      onPressed: () => Navigator.pop(context, c),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const Divider(height: 16),
+          ],
           Expanded(
             child: ListView.builder(
               controller: scroll,
@@ -824,9 +906,26 @@ class _CountrySheetState extends State<_CountrySheet> {
               itemBuilder: (context, i) {
                 final c = shown[i];
                 return ListTile(
-                  leading: Text(c.flag, style: const TextStyle(fontSize: 24)),
-                  title: Text(c.name),
-                  trailing: Text('+${c.code}'),
+                  leading: Text(c.flag, style: const TextStyle(fontSize: 26)),
+                  title: Text(
+                    c.name,
+                    style: const TextStyle(fontWeight: FontWeight.w500),
+                  ),
+                  subtitle: Text(c.iso, style: TextStyle(color: scheme.onSurfaceVariant)),
+                  trailing: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: scheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      '+${c.code}',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: scheme.primary,
+                      ),
+                    ),
+                  ),
                   onTap: () => Navigator.pop(context, c),
                 );
               },

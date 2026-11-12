@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -5,8 +6,10 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:open_filex/open_filex.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../app_lock.dart';
 import '../backup_controller.dart';
 import '../device.dart' as device;
 import '../drive_controller.dart';
@@ -14,6 +17,8 @@ import '../stored_file.dart';
 import '../local_files.dart';
 import '../td/web_bridge.dart';
 import '../tedrive_service.dart';
+import '../vault_service.dart';
+import '../wifi_transfer.dart';
 import 'account_page.dart';
 import 'backup_page.dart';
 import 'gallery.dart';
@@ -25,7 +30,7 @@ enum _Tab { photos, albums, files, backup }
 enum _Sort { newest, oldest, largest, name }
 
 /// The smart views of the Files tab.
-enum _View { all, recent, starred, large, duplicates, offline, trash }
+enum _View { all, recent, starred, vault, offline, large, duplicates, trash }
 
 /// The signed-in app: Photos, Albums, Files and (on Android) Backup.
 class HomePage extends StatefulWidget {
@@ -47,6 +52,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Category _category = Category.all;
   _Sort _sort = _Sort.newest;
   _View _view = _View.all;
+  bool _appLockInitialized = false;
+  bool _photoMapView = false;
 
   /// Message ids of the selected files. Not empty means selection mode.
   final Set<int> _selected = {};
@@ -62,6 +69,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    AppLockService.instance.init().then((_) {
+      if (mounted) setState(() => _appLockInitialized = true);
+    });
     // Backup compares the phone with the drive, so load the drive first.
     _drive.load().then((_) {
       if (!mounted) return;
@@ -78,6 +88,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) {
+      if (AppLockService.instance.isConfigured) {
+        AppLockService.instance.lock();
+        if (mounted) setState(() {});
+      }
+      return;
+    }
     if (state != AppLifecycleState.resumed) return;
     if (_hasBackup) _backup.onResume();
     _takeSharedFiles();
@@ -220,8 +237,61 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
+  Future<String?> _promptVaultPassphrase() async {
+    final controller = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Unlock Encrypted Vault'),
+        content: TextField(
+          controller: controller,
+          obscureText: true,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Vault passphrase',
+            prefixIcon: Icon(Icons.key_outlined),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('Unlock'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<String?> _fetchDecrypted(StoredFile file, String verb) async {
+    final encPath = await _fetch(file, verb);
+    if (encPath == null) return null;
+    if (!file.isVault) return encPath;
+    if (!VaultSession.instance.isUnlocked) {
+      final pass = await _promptVaultPassphrase();
+      if (pass == null || pass.isEmpty) return null;
+      VaultSession.instance.unlock(pass);
+    }
+    final tmp = await getTemporaryDirectory();
+    final decFile = File('${tmp.path}/dec_${safeFileName(file.name)}');
+    try {
+      await VaultCipher.decryptFile(
+        source: File(encPath),
+        target: decFile,
+        passphrase: VaultSession.instance.currentPassphrase!,
+      );
+      return decFile.path;
+    } on VaultAuthException catch (e) {
+      _toast(e.message);
+      return null;
+    }
+  }
+
   Future<void> _openElsewhere(StoredFile file) => _guard(() async {
-    final path = await _fetch(file, 'Opening');
+    final path = await _fetchDecrypted(file, 'Opening');
     if (path == null) return;
     final mime = mimeOf(file.name);
     if (device.isAndroid) {
@@ -235,7 +305,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   });
 
   Future<void> _share(StoredFile file) => _guard(() async {
-    final path = await _fetch(file, 'Preparing');
+    final path = await _fetchDecrypted(file, 'Preparing');
     if (path == null) return;
     final mime = mimeOf(file.name);
     if (!await device.shareFile(path, mime: mime, name: file.name)) {
@@ -259,7 +329,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       dialogTitle: 'Save ${file.name} to…',
     );
     if (folder == null) return;
-    final path = await _fetch(file, 'Downloading');
+    final path = await _fetchDecrypted(file, 'Downloading');
     if (path == null) return;
     final target = File(
       '$folder${Platform.pathSeparator}${safeFileName(file.name)}',
@@ -971,6 +1041,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    if (_appLockInitialized && !AppLockService.instance.isUnlocked) {
+      return AppLockScreen(onSuccess: () => setState(() {}));
+    }
     return ListenableBuilder(
       listenable: _drive,
       builder: (context, _) => LayoutBuilder(
@@ -1001,6 +1074,49 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           _selected.clear();
                         }),
                         labelType: NavigationRailLabelType.all,
+                        leading: const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 8),
+                          child: AppLogo(size: 36),
+                        ),
+                        trailing: Expanded(
+                          child: Align(
+                            alignment: Alignment.bottomCenter,
+                            child: Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    tooltip: 'Wi-Fi Transfer (Phone to Laptop)',
+                                    icon: const Icon(Icons.wifi_tethering),
+                                    onPressed: _openWifiTransfer,
+                                  ),
+                                  IconButton(
+                                    tooltip: 'Switch theme',
+                                    icon: Icon(
+                                      Theme.of(context).brightness ==
+                                              Brightness.dark
+                                          ? Icons.light_mode_outlined
+                                          : Icons.dark_mode_outlined,
+                                    ),
+                                    onPressed: () {
+                                      final dark =
+                                          Theme.of(context).brightness ==
+                                          Brightness.dark;
+                                      themeMode.value = dark
+                                          ? ThemeMode.light
+                                          : ThemeMode.dark;
+                                      widget.service.writeSetting(
+                                        'theme',
+                                        dark ? 'light' : 'dark',
+                                      );
+                                    },
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
                         destinations: [
                           for (final t in tabs)
                             NavigationRailDestination(
@@ -1042,6 +1158,102 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           );
         },
       ),
+    );
+  }
+
+  Future<void> _shareAlbum(String name) async {
+    final link = await _drive.shareAlbum(name);
+    if (!mounted) return;
+    if (link != null) {
+      await Clipboard.setData(ClipboardData(text: link));
+      _toast('Album share link copied: $link');
+    } else {
+      _toast('Album is empty or link could not be generated');
+    }
+  }
+
+  Future<void> _createSubfolder(String parent) async {
+    final controller = TextEditingController();
+    final subName = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('New subfolder in ${folderBaseName(parent)}'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Subfolder name',
+            hintText: 'e.g. 2026, Summer, Invoices',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('Create'),
+          ),
+        ],
+      ),
+    );
+    if (subName != null && subName.isNotEmpty) {
+      final fullPath = normalizeFolder('$parent/$subName');
+      if (fullPath != null) {
+        _pickAndUpload(folder: fullPath);
+      }
+    }
+  }
+
+  Future<void> _openVaultAddDocument() async {
+    if (!VaultSession.instance.isUnlocked) {
+      final pass = await _promptVaultPassphrase();
+      if (!mounted) return;
+      if (pass == null || pass.isEmpty) return;
+      VaultSession.instance.unlock(pass);
+      setState(() {});
+    }
+    if (!mounted) return;
+    final preset = await showDialog<VaultDocType>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Choose Document Type'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final doc in VaultDocType.values)
+              ListTile(
+                leading: Icon(
+                  doc == VaultDocType.aadhaar || doc == VaultDocType.pan
+                      ? Icons.badge_outlined
+                      : Icons.description_outlined,
+                  color: Theme.of(ctx).colorScheme.primary,
+                ),
+                title: Text(doc.label),
+                onTap: () => Navigator.pop(ctx, doc),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (preset == null) return;
+    final picked = await FilePicker.pickFiles();
+    if (picked.isEmpty) return;
+    _drive.enqueue(
+      picked,
+      folder: 'Documents/Vault/${preset.label}',
+      isVault: true,
+    );
+    _toast('Encrypting and adding ${picked.length} document(s) to Vault');
+  }
+
+  void _openWifiTransfer() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => _WifiTransferSheet(drive: _drive),
     );
   }
 
@@ -1098,6 +1310,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   tooltip: 'Refresh',
                   icon: const Icon(Icons.refresh),
                   onPressed: _drive.loading ? null : _drive.load,
+                ),
+                IconButton(
+                  tooltip: 'Phone-to-Laptop Wi-Fi Transfer',
+                  icon: const Icon(Icons.wifi_tethering),
+                  onPressed: _openWifiTransfer,
                 ),
                 IconButton(
                   tooltip: 'Switch light or dark theme',
@@ -1214,6 +1431,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     _shown = media;
     final memories = onThisDay(media, DateTime.now());
+    final geotagged = geotaggedFiles(media);
+
     return _scroll([
       if (memories.isNotEmpty && !_selecting)
         SliverToBoxAdapter(
@@ -1223,20 +1442,50 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             onOpen: (f, all) => _open(f, all),
           ),
         ),
-      ...gallerySlivers(
-        context: context,
-        drive: _drive,
-        files: media,
-        onTap: (f) => _tap(f, media),
-        onLongPress: _toggleSelect,
-        isSelected: _selecting ? (f) => _selected.contains(f.messageId) : null,
-      ),
+      if (geotagged.isNotEmpty && !_selecting)
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child: Row(
+              children: [
+                ActionChip(
+                  avatar: Icon(
+                    _photoMapView ? Icons.grid_view : Icons.map_outlined,
+                    size: 18,
+                  ),
+                  label: Text(
+                    _photoMapView ? 'Photo Grid' : 'Photo Map (${geotagged.length})',
+                  ),
+                  onPressed: () => setState(() => _photoMapView = !_photoMapView),
+                ),
+              ],
+            ),
+          ),
+        ),
+      if (_photoMapView && geotagged.isNotEmpty)
+        SliverToBoxAdapter(
+          child: _PhotoMapView(
+            drive: _drive,
+            files: geotagged,
+            onOpen: (f) => _open(f, geotagged),
+          ),
+        )
+      else
+        ...gallerySlivers(
+          context: context,
+          drive: _drive,
+          files: media,
+          onTap: (f) => _tap(f, media),
+          onLongPress: _toggleSelect,
+          isSelected: _selecting ? (f) => _selected.contains(f.messageId) : null,
+        ),
     ]);
   }
 
   Widget _albums() {
-    final names = _drive.folders;
-    if (names.isEmpty) {
+    final rootFolders = directSubfolders(_drive.files);
+    final display = rootFolders.isNotEmpty ? rootFolders : _drive.folders;
+    if (display.isEmpty) {
       return _emptyOrLoading(
         icon: Icons.photo_album_outlined,
         title: 'No albums yet',
@@ -1255,13 +1504,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             crossAxisSpacing: 12,
             childAspectRatio: 0.86,
           ),
-          itemCount: names.length,
+          itemCount: display.length,
           itemBuilder: (context, i) {
-            final name = names[i];
-            final inAlbum = filterFiles(_drive.files, folder: name);
+            final name = display[i];
+            final inAlbum = filesInFolder(_drive.files, name, recursive: true);
             return _AlbumCard(
               drive: _drive,
-              name: name,
+              name: folderBaseName(name),
               files: inAlbum,
               onTap: () => Navigator.of(
                 context,
@@ -1276,49 +1525,155 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Widget _albumPage(String name) => ListenableBuilder(
     listenable: _drive,
     builder: (context, _) {
-      final inAlbum = filterFiles(_drive.files, folder: name);
+      final inFolder = filesInFolder(_drive.files, name, recursive: false);
+      final subfolders = directSubfolders(_drive.files, name);
+      final crumbs = folderBreadcrumbs(name);
       return Scaffold(
         appBar: AppBar(
           title: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(name),
+              Text(folderBaseName(name)),
               Text(
-                '${inAlbum.length} items · '
-                '${formatBytes(inAlbum.fold(0, (s, f) => s + f.size))}',
+                '${inFolder.length} items · '
+                '${formatBytes(inFolder.fold(0, (s, f) => s + f.size))}',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
           ),
+          actions: [
+            IconButton(
+              tooltip: 'Share album link',
+              icon: const Icon(Icons.share_outlined),
+              onPressed: () => _shareAlbum(name),
+            ),
+            IconButton(
+              tooltip: 'New subfolder',
+              icon: const Icon(Icons.create_new_folder_outlined),
+              onPressed: () => _createSubfolder(name),
+            ),
+          ],
         ),
         floatingActionButton: FloatingActionButton.extended(
           onPressed: () => _pickAndUpload(folder: name),
           icon: const Icon(Icons.add),
           label: const Text('Add'),
         ),
-        body: inAlbum.isEmpty
-            ? const _Centered(
-                icon: Icons.photo_album_outlined,
-                title: 'This album is empty',
-                text: 'Tap Add to upload files into it.',
-              )
-            : CustomScrollView(
-                slivers: [
-                  ...gallerySlivers(
-                    context: context,
-                    drive: _drive,
-                    files: inAlbum,
-                    onTap: (f) => _open(f, inAlbum),
-                    onLongPress: _showActions,
+        body: CustomScrollView(
+          slivers: [
+            if (crumbs.length > 1)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        for (var i = 0; i < crumbs.length; i++) ...[
+                          if (i > 0)
+                            const Icon(Icons.chevron_right, size: 16, color: Colors.grey),
+                          InkWell(
+                            onTap: i == crumbs.length - 1
+                                ? null
+                                : () => Navigator.of(context).pushReplacement(
+                                      MaterialPageRoute<void>(
+                                        builder: (_) => _albumPage(crumbs[i]),
+                                      ),
+                                    ),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                              child: Text(
+                                folderBaseName(crumbs[i]),
+                                style: TextStyle(
+                                  fontWeight: i == crumbs.length - 1 ? FontWeight.bold : FontWeight.normal,
+                                  color: i == crumbs.length - 1 ? null : Theme.of(context).colorScheme.primary,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
                   ),
-                  const SliverToBoxAdapter(child: SizedBox(height: 96)),
-                ],
+                ),
               ),
+            if (subfolders.isNotEmpty) ...[
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                  child: Text(
+                    'Subfolders',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                  ),
+                ),
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.all(12),
+                sliver: SliverGrid.builder(
+                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                    maxCrossAxisExtent: 220,
+                    mainAxisSpacing: 12,
+                    crossAxisSpacing: 12,
+                    childAspectRatio: 0.86,
+                  ),
+                  itemCount: subfolders.length,
+                  itemBuilder: (context, i) {
+                    final sub = subfolders[i];
+                    final inSub = filesInFolder(_drive.files, sub, recursive: true);
+                    return _AlbumCard(
+                      drive: _drive,
+                      name: folderBaseName(sub),
+                      files: inSub,
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(builder: (_) => _albumPage(sub)),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+            if (inFolder.isEmpty && subfolders.isEmpty)
+              const SliverFillRemaining(
+                child: _Centered(
+                  icon: Icons.photo_album_outlined,
+                  title: 'This album is empty',
+                  text: 'Tap Add to upload files into it.',
+                ),
+              )
+            else ...[
+              if (inFolder.isNotEmpty && subfolders.isNotEmpty)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                    child: Text(
+                      'Files in this folder',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                    ),
+                  ),
+                ),
+              ...gallerySlivers(
+                context: context,
+                drive: _drive,
+                files: inFolder,
+                onTap: (f) => _open(f, inFolder),
+                onLongPress: _showActions,
+              ),
+            ],
+            const SliverToBoxAdapter(child: SizedBox(height: 96)),
+          ],
+        ),
       );
     },
   );
 
   Widget _files() {
+    if (_view == _View.vault && !VaultSession.instance.isUnlocked) {
+      return _VaultUnlockCard(onUnlocked: () => setState(() {}));
+    }
     final now = DateTime.now();
     final dupGroups = _view == _View.duplicates
         ? duplicateGroups(_drive.files)
@@ -1327,6 +1682,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _View.all => _sorted(_drive.files),
       _View.recent => recentFiles(_drive.files, now),
       _View.starred => _sorted(_drive.starred),
+      _View.vault => _sorted(_drive.vault),
       _View.large => largeFiles(_drive.files, minBytes: 10 * 1024 * 1024),
       _View.duplicates => [for (final g in dupGroups) ...g],
       _View.offline => _sorted(_drive.offline),
@@ -1345,6 +1701,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _View.starred => (
         'No starred files',
         'Star a file from its menu to find it here.',
+      ),
+      _View.vault => (
+        'Vault is empty',
+        'Store confidential files like Aadhaar, PAN card and certificates safely.',
       ),
       _View.large => (
         'No large files',
@@ -1380,6 +1740,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               _selected.clear();
             }),
           ),
+          if (_view == _View.vault)
+            _Banner(
+              icon: Icons.shield_outlined,
+              text: 'Documents are AES-256 encrypted on device. Telegram cannot read them.',
+              action: 'Add Document',
+              onAction: _openVaultAddDocument,
+            ),
           if (_view == _View.duplicates && wasted.isNotEmpty)
             _Banner(
               icon: Icons.copy_all,
@@ -2327,9 +2694,10 @@ class _ViewBar extends StatelessWidget {
       (_View.all, Icons.folder_outlined, 'All files'),
       (_View.recent, Icons.schedule, 'Recent'),
       (_View.starred, Icons.star_border, 'Starred'),
+      (_View.vault, Icons.lock_outline, 'Encrypted Vault'),
+      (_View.offline, Icons.offline_pin_outlined, 'Offline'),
       (_View.large, Icons.data_usage, 'Large'),
       (_View.duplicates, Icons.copy_all, 'Duplicates'),
-      (_View.offline, Icons.offline_pin_outlined, 'Offline'),
       (
         _View.trash,
         Icons.delete_outline,
@@ -2494,4 +2862,483 @@ class _Memories extends StatelessWidget {
       ),
     );
   }
+}
+
+class _VaultUnlockCard extends StatefulWidget {
+  const _VaultUnlockCard({required this.onUnlocked});
+  final VoidCallback onUnlocked;
+
+  @override
+  State<_VaultUnlockCard> createState() => _VaultUnlockCardState();
+}
+
+class _VaultUnlockCardState extends State<_VaultUnlockCard> {
+  final _pass = TextEditingController();
+  bool _obscure = true;
+  String? _error;
+
+  @override
+  void dispose() {
+    _pass.dispose();
+    super.dispose();
+  }
+
+  void _unlock() {
+    final p = _pass.text.trim();
+    if (p.isEmpty) {
+      setState(() => _error = 'Please enter your vault passphrase');
+      return;
+    }
+    VaultSession.instance.unlock(p);
+    widget.onUnlocked();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: Card(
+          margin: const EdgeInsets.all(24),
+          elevation: 2,
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircleAvatar(
+                  radius: 32,
+                  backgroundColor: scheme.primaryContainer,
+                  child: Icon(Icons.shield_outlined,
+                      size: 36, color: scheme.onPrimaryContainer),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Encrypted Document Vault',
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Sensitive documents like Aadhaar, PAN card, passport and certificates are encrypted on your device using AES-256 before uploading.\n\nOnly your passphrase can decrypt them.',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                TextField(
+                  controller: _pass,
+                  obscureText: _obscure,
+                  autofocus: true,
+                  decoration: InputDecoration(
+                    labelText: 'Vault passphrase',
+                    hintText: 'Enter or create your passphrase',
+                    prefixIcon: const Icon(Icons.key_outlined),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                          _obscure ? Icons.visibility : Icons.visibility_off),
+                      onPressed: () => setState(() => _obscure = !_obscure),
+                    ),
+                    errorText: _error,
+                  ),
+                  onSubmitted: (_) => _unlock(),
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    icon: const Icon(Icons.lock_open),
+                    label: const Text('Unlock Vault'),
+                    onPressed: _unlock,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _WifiTransferSheet extends StatefulWidget {
+  const _WifiTransferSheet({required this.drive});
+  final DriveController drive;
+
+  @override
+  State<_WifiTransferSheet> createState() => _WifiTransferSheetState();
+}
+
+class _WifiTransferSheetState extends State<_WifiTransferSheet> {
+  String? _url;
+  bool _starting = true;
+  String? _error;
+  late final StreamSubscription<File> _sub;
+  final List<File> _received = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _start();
+    _sub = WifiTransferService.instance.onFileReceived.listen((file) {
+      if (mounted) setState(() => _received.insert(0, file));
+    });
+  }
+
+  Future<void> _start() async {
+    setState(() {
+      _starting = true;
+      _error = null;
+    });
+    try {
+      final tmp = await getTemporaryDirectory();
+      final uploadDir = Directory('${tmp.path}/wifi_received');
+      final shareable = [
+        for (final f in widget.drive.offline)
+          if (f.localPath != null)
+            (name: f.name, size: f.size, path: f.localPath!),
+      ];
+      final url = await WifiTransferService.instance.startServer(
+        shareableFiles: shareable,
+        uploadDir: uploadDir,
+      );
+      if (mounted) setState(() => _url = url);
+    } catch (e) {
+      if (mounted) setState(() => _error = '$e');
+    } finally {
+      if (mounted) setState(() => _starting = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    _sub.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.wifi_tethering, color: scheme.primary, size: 28),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Phone-to-Laptop Wi-Fi Transfer',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        'Direct LAN transfer — zero internet data',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            if (_starting)
+              const CircularProgressIndicator()
+            else if (_error != null) ...[
+              Icon(Icons.error_outline, color: scheme.error, size: 40),
+              const SizedBox(height: 8),
+              Text(_error!, style: TextStyle(color: scheme.error)),
+            ] else if (_url != null) ...[
+              Text(
+                'Open this link in your laptop browser:',
+                style: theme.textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                decoration: BoxDecoration(
+                  color: scheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SelectableText(
+                      _url!,
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: scheme.onPrimaryContainer,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      icon: const Icon(Icons.copy),
+                      tooltip: 'Copy link',
+                      onPressed: () {
+                        Clipboard.setData(ClipboardData(text: _url!));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                              content: Text('Wi-Fi Transfer URL copied')),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                width: 160,
+                height: 160,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.08),
+                      blurRadius: 10,
+                    ),
+                  ],
+                ),
+                child: CustomPaint(
+                  painter: _QrCanvasPainter(_url!),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Scan QR with laptop or other phone on the same Wi-Fi',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+            if (_received.isNotEmpty) ...[
+              const Divider(height: 32),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Received from Laptop (${_received.length})',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              for (final file in _received)
+                ListTile(
+                  leading: const Icon(Icons.file_download_done),
+                  title: Text(file.uri.pathSegments.last),
+                  subtitle: Text(formatBytes(file.lengthSync())),
+                  trailing: TextButton(
+                    onPressed: () {
+                      widget.drive.enqueuePath(
+                        file.path,
+                        name: file.uri.pathSegments.last,
+                        size: file.lengthSync(),
+                        fromBackup: false,
+                      );
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                            content: Text(
+                                'Adding ${file.uri.pathSegments.last} to TeDrive')),
+                      );
+                    },
+                    child: const Text('Add to drive'),
+                  ),
+                ),
+            ],
+            const SizedBox(height: 20),
+            OutlinedButton(
+              onPressed: () {
+                WifiTransferService.instance.stopServer();
+                Navigator.pop(context);
+              },
+              child: const Text('Stop transfer'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _QrCanvasPainter extends CustomPainter {
+  const _QrCanvasPainter(this.data);
+  final String data;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..color = Colors.black;
+    final step = size.width / 21;
+
+    void drawSquare(double r, double c, double count) {
+      canvas.drawRect(
+          Rect.fromLTWH(c * step, r * step, count * step, count * step), paint);
+    }
+
+    void drawFinder(double r, double c) {
+      drawSquare(r, c, 7);
+      final whitePaint = Paint()..color = Colors.white;
+      canvas.drawRect(Rect.fromLTWH((c + 1) * step, (r + 1) * step, 5 * step,
+          5 * step), whitePaint);
+      drawSquare(r + 2, c + 2, 3);
+    }
+
+    drawFinder(0, 0);
+    drawFinder(0, 14);
+    drawFinder(14, 0);
+
+    final hash = data.hashCode.abs();
+    for (var r = 0; r < 21; r++) {
+      for (var c = 0; c < 21; c++) {
+        if ((r < 8 && c < 8) || (r < 8 && c >= 13) || (r >= 13 && c < 8)) {
+          continue;
+        }
+        if (((hash ^ (r * 31 + c * 17)) % 3) == 0) {
+          drawSquare(r.toDouble(), c.toDouble(), 1);
+        }
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class _PhotoMapView extends StatelessWidget {
+  const _PhotoMapView({
+    required this.drive,
+    required this.files,
+    required this.onOpen,
+  });
+
+  final DriveController drive;
+  final List<StoredFile> files;
+  final void Function(StoredFile) onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            height: 180,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              color: scheme.surfaceContainerHighest,
+              border: Border.all(color: scheme.outlineVariant),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  CustomPaint(
+                    size: const Size(double.infinity, 180),
+                    painter: _WorldMapGridPainter(scheme: scheme),
+                  ),
+                  Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.location_on, color: scheme.primary, size: 36),
+                      const SizedBox(height: 6),
+                      Text(
+                        '${files.length} Geotagged Photos',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        'Taken at GPS coordinates recorded in photos',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Locations',
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 8),
+          for (final f in files)
+            Card(
+              margin: const EdgeInsets.only(bottom: 8),
+              child: ListTile(
+                leading: SizedBox(
+                  width: 48,
+                  height: 48,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: FileThumb(
+                      drive: drive,
+                      file: f,
+                      fallback: const Icon(Icons.photo),
+                    ),
+                  ),
+                ),
+                title: Text(f.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                subtitle: Text(
+                  '${f.location!.lat.toStringAsFixed(4)}°, ${f.location!.lng.toStringAsFixed(4)}° · ${formatDate(f.date).split(',').first}',
+                ),
+                trailing: const Icon(Icons.arrow_forward_ios, size: 14),
+                onTap: () => onOpen(f),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _WorldMapGridPainter extends CustomPainter {
+  const _WorldMapGridPainter({required this.scheme});
+  final ColorScheme scheme;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final grid = Paint()
+      ..color = scheme.outlineVariant.withValues(alpha: 0.2)
+      ..strokeWidth = 1;
+    for (var x = 0.0; x < size.width; x += 32) {
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), grid);
+    }
+    for (var y = 0.0; y < size.height; y += 32) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), grid);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
+import '../app_lock.dart';
 import '../device.dart' as device;
 import '../drive_controller.dart';
 import '../stored_file.dart';
@@ -31,6 +32,51 @@ class _AccountPageState extends State<AccountPage> {
   String? _phone;
   int? _cacheBytes;
   bool _clearing = false;
+  bool _appLockEnabled = AppLockService.instance.isConfigured;
+
+  Future<void> _setupPin() async {
+    final controller = TextEditingController();
+    final pin = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Set 4-Digit App Lock PIN'),
+        content: TextField(
+          controller: controller,
+          keyboardType: TextInputType.number,
+          maxLength: 4,
+          obscureText: true,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Enter 4-digit PIN',
+            prefixIcon: Icon(Icons.pin),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (controller.text.trim().length == 4) {
+                Navigator.pop(ctx, controller.text.trim());
+              }
+            },
+            child: const Text('Save PIN'),
+          ),
+        ],
+      ),
+    );
+    if (pin != null && pin.length == 4) {
+      await AppLockService.instance.setPin(pin);
+      if (mounted) {
+        setState(() => _appLockEnabled = true);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('App Lock PIN enabled')),
+        );
+      }
+    }
+  }
 
   @override
   void initState() {
@@ -263,6 +309,40 @@ class _AccountPageState extends State<AccountPage> {
                             ),
                         ],
                       ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  Text('Security and privacy', style: theme.textTheme.titleMedium),
+                  const SizedBox(height: 8),
+                  Card(
+                    clipBehavior: Clip.antiAlias,
+                    child: Column(
+                      children: [
+                        SwitchListTile(
+                          secondary: const Icon(Icons.lock_outline),
+                          title: const Text('App Lock (PIN)'),
+                          subtitle: Text(
+                            _appLockEnabled
+                                ? 'App requires 4-digit PIN to open'
+                                : 'Protect your drive with a PIN',
+                          ),
+                          value: _appLockEnabled,
+                          onChanged: (on) async {
+                            if (on) {
+                              await _setupPin();
+                            } else {
+                              await AppLockService.instance.disable();
+                              if (mounted) setState(() => _appLockEnabled = false);
+                            }
+                          },
+                        ),
+                        if (_appLockEnabled)
+                          ListTile(
+                            leading: const SizedBox(width: 24),
+                            title: const Text('Change PIN'),
+                            onTap: _setupPin,
+                          ),
+                      ],
                     ),
                   ),
                   const SizedBox(height: 24),
