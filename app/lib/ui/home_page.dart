@@ -187,7 +187,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               drive: _drive,
               files: images,
               initialIndex: index < 0 ? 0 : index,
-              onShare: _share,
+              onShare: _shareMenu,
               onMore: _showActions,
             ),
           ),
@@ -198,7 +198,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             builder: (_) => PlayerPage(
               drive: _drive,
               file: _latest(file),
-              onShare: _share,
+              onShare: _shareMenu,
               onMore: _showActions,
               onOpenElsewhere: _openElsewhere,
             ),
@@ -261,63 +261,145 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _toast('Saved to ${target.path}');
   });
 
-  /// Creates (after a warning) or shows the public link of a file.
-  Future<void> _shareLink(StoredFile original) async {
+  Future<String?> _ensureShareLink(StoredFile original) async {
     var link = _latest(original).shareLink;
-    if (link == null) {
-      final go = await _confirm(
-        title: 'Create a public link?',
-        body:
-            'Anyone who has the link can see and download '
-            '${_latest(original).name}, without signing in.\n\n'
-            'TeDrive copies the file into a public channel called '
-            '"TeDrive Shared" in your Telegram. Your other files stay '
-            'private. You can stop sharing at any time.',
-        action: 'Create link',
-      );
-      if (!go || !mounted) return;
-      var dialogOpen = true;
-      showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => const PopScope(
-          canPop: false,
-          child: AlertDialog(
-            content: Row(
+    if (link != null) return link;
+    final go = await _confirm(
+      title: 'Create a public link?',
+      body:
+          'Anyone who has the link can see and download '
+          '${_latest(original).name}, without signing in.\n\n'
+          'TeDrive copies the file into a public channel called '
+          '"TeDrive Shared" in your Telegram. Your other files stay '
+          'private. You can stop sharing at any time.',
+      action: 'Create link',
+    );
+    if (!go || !mounted) return null;
+    var dialogOpen = true;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const PopScope(
+        canPop: false,
+        child: AlertDialog(
+          content: Row(
+            children: [
+              SizedBox.square(
+                dimension: 24,
+                child: CircularProgressIndicator(strokeWidth: 3),
+              ),
+              SizedBox(width: 20),
+              Expanded(child: Text('Creating link…')),
+            ],
+          ),
+        ),
+      ),
+    ).then((_) => dialogOpen = false);
+    try {
+      link = await _drive.shareLink(original);
+      return link;
+    } catch (e) {
+      _toast(e is StateError ? e.message : 'Could not create the link: $e');
+      return null;
+    } finally {
+      if (dialogOpen && mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+    }
+  }
+
+  Future<void> _copyShareLink(StoredFile original) async {
+    final link = await _ensureShareLink(original);
+    if (link == null) return;
+    await Clipboard.setData(ClipboardData(text: link));
+    _toast('Link copied');
+  }
+
+  Future<void> _sharePublicLink(StoredFile original) async {
+    final link = await _ensureShareLink(original);
+    if (link == null) return;
+    await SharePlus.instance.share(ShareParams(text: link));
+  }
+
+  void _shareMenu(StoredFile original) {
+    final file = _latest(original);
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheet) {
+        return SafeArea(
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                SizedBox.square(
-                  dimension: 24,
-                  child: CircularProgressIndicator(strokeWidth: 3),
+                ListTile(
+                  leading: _Leading(drive: _drive, file: file),
+                  title: Text(
+                    file.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text(file.shareLink ?? formatBytes(file.size)),
                 ),
-                SizedBox(width: 20),
-                Expanded(child: Text('Creating link…')),
+                const Divider(),
+                ListTile(
+                  leading: const Icon(Icons.link),
+                  title: const Text('Copy link'),
+                  subtitle: const Text('Direct link to copy and share'),
+                  onTap: () {
+                    Navigator.pop(sheet);
+                    _copyShareLink(original);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.share_outlined),
+                  title: const Text('Share link'),
+                  subtitle: const Text('Send link via WhatsApp, messaging apps…'),
+                  onTap: () {
+                    Navigator.pop(sheet);
+                    _sharePublicLink(original);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.download_for_offline_outlined),
+                  title: const Text('Send file directly'),
+                  subtitle: Text('Download & send full file (${formatBytes(file.size)})'),
+                  onTap: () {
+                    Navigator.pop(sheet);
+                    _share(original);
+                  },
+                ),
+                if (file.shareLink != null)
+                  ListTile(
+                    leading: const Icon(Icons.link_off, color: Colors.redAccent),
+                    title: const Text('Manage or stop sharing link'),
+                    onTap: () {
+                      Navigator.pop(sheet);
+                      _shareLink(original);
+                    },
+                  ),
               ],
             ),
           ),
-        ),
-      ).then((_) => dialogOpen = false);
-      try {
-        link = await _drive.shareLink(original);
-      } catch (e) {
-        _toast(e is StateError ? e.message : 'Could not create the link: $e');
-        return;
-      } finally {
-        if (dialogOpen && mounted) {
-          Navigator.of(context, rootNavigator: true).pop();
-        }
-      }
-    }
-    if (!mounted) return;
+        );
+      },
+    );
+  }
+
+  /// Creates (after a warning) or shows the public link of a file.
+  Future<void> _shareLink(StoredFile original) async {
+    final link = await _ensureShareLink(original);
+    if (link == null || !mounted) return;
     await showDialog<void>(
       context: context,
       builder: (_) => _ShareLinkDialog(
         name: _latest(original).name,
-        link: link!,
+        link: link,
         onCopy: () {
-          Clipboard.setData(ClipboardData(text: link!));
+          Clipboard.setData(ClipboardData(text: link));
           _toast('Link copied');
         },
-        onSend: () => SharePlus.instance.share(ShareParams(text: link!)),
+        onSend: () => SharePlus.instance.share(ShareParams(text: link)),
         onStop: () => _guard(() async {
           await _drive.stopSharing(original);
           _toast('Link removed. It no longer works.');
@@ -532,23 +614,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 ListTile(
                   leading: const Icon(Icons.share_outlined),
                   title: const Text('Share or send'),
-                  onTap: () => run(_share),
+                  subtitle: const Text('Copy link, share link, or send file'),
+                  onTap: () => run(_shareMenu),
                 ),
                 ListTile(
-                  leading: Icon(
-                    file.shareLink == null ? Icons.add_link : Icons.link,
-                  ),
-                  title: Text(
-                    file.shareLink == null ? 'Create share link' : 'Share link',
-                  ),
+                  leading: const Icon(Icons.copy_rounded),
+                  title: const Text('Copy link'),
                   subtitle: file.shareLink == null
-                      ? null
+                      ? const Text('Share instantly via link')
                       : Text(
                           file.shareLink!,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
-                  onTap: () => run(_shareLink),
+                  onTap: () => run(_copyShareLink),
                 ),
                 if (device.isDesktop || kIsWeb)
                   ListTile(

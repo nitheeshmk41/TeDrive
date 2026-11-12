@@ -322,7 +322,7 @@ jobs:
   publish:
     name: Publish GitHub release
     # Android is required. Each desktop build is included if it succeeded.
-    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/') && needs.android.result == 'success' }}
+    if: ${{ always() && !cancelled() && startsWith(github.ref, 'refs/tags/') && needs.android.result == 'success' }}
     needs: [android, web, linux, windows, macos]
     runs-on: ubuntu-latest
     steps:
