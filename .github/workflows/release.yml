@@ -66,3 +66,4 @@ jobs:
             - Gallery viewer, search, and folder categorization
             - Transparent custom app icon
           files: release-assets/*.apk
+
