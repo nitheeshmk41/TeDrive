@@ -25,6 +25,7 @@ class StoredFile {
     this.folder,
     this.taken,
     this.device,
+    this.customName,
     this.localPath,
     this.thumbFileId,
     this.miniThumb,
@@ -34,7 +35,14 @@ class StoredFile {
 
   /// TDLib's id for the file. Only valid in the current session.
   final int fileId;
+
+  /// The name shown to the user: [customName] if the file was renamed,
+  /// otherwise the name it was uploaded with.
   final String name;
+
+  /// The name given with Rename, stored in the caption. Telegram cannot
+  /// change the name of an uploaded file itself.
+  final String? customName;
   final int size;
 
   /// When the photo or video was taken if known ([taken]), otherwise when
@@ -68,16 +76,18 @@ class StoredFile {
   StoredFile _copy({
     String? Function()? localPath,
     String? Function()? folder,
+    String? newName,
   }) => StoredFile(
     messageId: messageId,
     fileId: fileId,
-    name: name,
+    name: newName ?? name,
     size: size,
     date: date,
     sha256: sha256,
     folder: folder == null ? this.folder : folder(),
     taken: taken,
     device: device,
+    customName: newName ?? customName,
     localPath: localPath == null ? this.localPath : localPath(),
     thumbFileId: thumbFileId,
     miniThumb: miniThumb,
@@ -86,12 +96,17 @@ class StoredFile {
   StoredFile withLocalPath(String? path) => _copy(localPath: () => path);
   StoredFile withFolder(String? name) => _copy(folder: () => name);
 
+  /// The file under a new name. [newName] must already be cleaned with
+  /// [cleanNewName].
+  StoredFile renamed(String newName) => _copy(newName: newName);
+
   /// The caption TeDrive writes for this file.
   String get caption => buildCaption(
     sha256: sha256,
     folder: folder,
     taken: taken,
     device: device,
+    name: customName,
   );
 
   /// Turns a TDLib message into a [StoredFile], or null if it has no file.
@@ -145,10 +160,16 @@ class StoredFile {
     final taken = seconds == null
         ? null
         : DateTime.fromMillisecondsSinceEpoch(seconds * 1000);
+    final uploadedName = (n == null || n.isEmpty) ? 'file_$id' : n;
+    final customName = cleanNewName(
+      _namePattern.firstMatch(caption)?.group(1) ?? '',
+      original: uploadedName,
+    );
     return StoredFile(
       messageId: id,
       fileId: f['id'] as int,
-      name: (n == null || n.isEmpty) ? 'file_$id' : n,
+      name: customName ?? uploadedName,
+      customName: customName,
       size: fileSize(f),
       date:
           taken ??
@@ -190,12 +211,36 @@ String buildCaption({
   String? folder,
   DateTime? taken,
   String? device,
+  String? name,
 }) => [
   if (sha256 != null) 'sha256:$sha256',
   if (normalizeFolder(folder) != null) 'folder:${normalizeFolder(folder)}',
   if (taken != null) 'time:${taken.millisecondsSinceEpoch ~/ 1000}',
   if (normalizeFolder(device) != null) 'device:${normalizeFolder(device)}',
+  if (name != null && name.trim().isNotEmpty) 'name:${name.trim()}',
 ].join('\n');
+
+final _namePattern = RegExp(r'^name:(.*)$', multiLine: true);
+
+/// Cleans a name typed in the Rename box. Path separators and line breaks
+/// are removed, and the original extension is put back if the user left it
+/// off, so a renamed photo is still recognised as a photo. Returns null
+/// when nothing usable is left.
+String? cleanNewName(String typed, {required String original}) {
+  var name = typed
+      .replaceAll(RegExp(r'[\\/\x00-\x1f]'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+  if (name.isEmpty || name == '.' || name == '..') return null;
+  if (name.length > 120) name = name.substring(0, 120).trim();
+  final dot = original.lastIndexOf('.');
+  final extension = dot > 0 ? original.substring(dot) : '';
+  if (extension.isNotEmpty &&
+      !name.toLowerCase().endsWith(extension.toLowerCase())) {
+    name = '$name$extension';
+  }
+  return name;
+}
 
 final _devicePattern = RegExp(r'^device:(.*)$', multiLine: true);
 final _timePattern = RegExp(r'^time:(\d{1,12})$', multiLine: true);
@@ -434,3 +479,75 @@ String encodePickerCatalogue(
       },
   ],
 });
+
+const _shortMonths = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', //
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
+const _weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+/// "Today", "Yesterday", "Tue, 10 Nov", or "10 Nov 2025" for other years.
+String dayLabel(DateTime day, DateTime now) {
+  final d = DateTime(day.year, day.month, day.day);
+  final today = DateTime(now.year, now.month, now.day);
+  final daysAgo = today.difference(d).inHours ~/ 24;
+  if (d == today) return 'Today';
+  if (daysAgo == 1 && d.isBefore(today)) return 'Yesterday';
+  final date = '${d.day} ${_shortMonths[d.month - 1]}';
+  return d.year == now.year
+      ? '${_weekdays[d.weekday - 1]}, $date'
+      : '$date ${d.year}';
+}
+
+/// Splits files (already newest first) into one section per day, the way
+/// a phone gallery does.
+List<({String label, List<StoredFile> files})> groupByDay(
+  List<StoredFile> files, {
+  DateTime? now,
+}) {
+  final clock = now ?? DateTime.now();
+  final groups = <({String label, List<StoredFile> files})>[];
+  DateTime? current;
+  for (final f in files) {
+    final day = DateTime(f.date.year, f.date.month, f.date.day);
+    if (day != current) {
+      current = day;
+      groups.add((label: dayLabel(day, clock), files: []));
+    }
+    groups.last.files.add(f);
+  }
+  return groups;
+}
+
+/// Totals shown on the account page.
+class DriveStats {
+  DriveStats(Iterable<StoredFile> files) {
+    for (final f in files) {
+      count++;
+      bytes += f.size;
+      if (f.localPath != null) {
+        localCount++;
+        localBytes += f.size;
+      }
+      final category = Category.values.firstWhere(
+        (c) => c != Category.all && inCategory(f, c),
+      );
+      final c = byCategory[category] ?? (count: 0, bytes: 0);
+      byCategory[category] = (count: c.count + 1, bytes: c.bytes + f.size);
+      final device = f.device ?? 'Unknown device';
+      final d = byDevice[device] ?? (count: 0, bytes: 0);
+      byDevice[device] = (count: d.count + 1, bytes: d.bytes + f.size);
+      if (oldest == null || f.date.isBefore(oldest!)) oldest = f.date;
+    }
+  }
+
+  int count = 0;
+  int bytes = 0;
+
+  /// Files with a copy on this device.
+  int localCount = 0;
+  int localBytes = 0;
+  DateTime? oldest;
+  final Map<Category, ({int count, int bytes})> byCategory = {};
+  final Map<String, ({int count, int bytes})> byDevice = {};
+}

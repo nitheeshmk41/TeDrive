@@ -317,10 +317,10 @@ class TeDriveService {
     return id;
   }
 
-  Future<bool> isPremium() async {
-    final me = await td.request({'@type': 'getMe'});
-    return me['is_premium'] == true;
-  }
+  Future<bool> isPremium() async => (await me())['is_premium'] == true;
+
+  /// The signed-in Telegram user.
+  Future<Json> me() => td.request({'@type': 'getMe'});
 
   // ---- Upload ----
 
@@ -483,14 +483,19 @@ class TeDriveService {
 
   /// Moves a file to [folder] (null for none) by rewriting its caption.
   Future<void> setFolder(int chatId, StoredFile file, String? folder) =>
+      _setCaption(chatId, file.messageId, file.withFolder(folder).caption);
+
+  /// Gives a file a new display name by rewriting its caption. The name
+  /// then shows on every device.
+  Future<void> rename(int chatId, StoredFile file, String newName) =>
+      _setCaption(chatId, file.messageId, file.renamed(newName).caption);
+
+  Future<void> _setCaption(int chatId, int messageId, String caption) =>
       td.request({
         '@type': 'editMessageCaption',
         'chat_id': chatId,
-        'message_id': file.messageId,
-        'caption': {
-          '@type': 'formattedText',
-          'text': file.withFolder(folder).caption,
-        },
+        'message_id': messageId,
+        'caption': {'@type': 'formattedText', 'text': caption},
       });
 
   // ---- Settings ----
@@ -579,6 +584,28 @@ class TeDriveService {
     '@type': 'cancelDownloadFile',
     'file_id': fileId,
     'only_if_pending': false,
+  });
+
+  /// Bytes used by copies TeDrive has downloaded to this device.
+  Future<int> cacheBytes() async {
+    final stats = await td.request({'@type': 'getStorageStatisticsFast'});
+    return stats['files_size'] as int? ?? 0;
+  }
+
+  /// Deletes downloaded copies, least recently used first, until at most
+  /// [maxBytes] remain. Only TeDrive's own cache is touched, and files
+  /// opened in the last hour are left alone. Everything stays in Telegram.
+  Future<void> trimCache(int maxBytes) => td.request({
+    '@type': 'optimizeStorage',
+    'size': maxBytes,
+    'ttl': -1,
+    'count': -1,
+    'immunity_delay': maxBytes == 0 ? 0 : 3600,
+    'file_types': const <Object>[],
+    'chat_ids': const <int>[],
+    'exclude_chat_ids': const <int>[],
+    'return_deleted_file_statistics': false,
+    'chat_limit': 0,
   });
 
   /// True if [path] is inside TeDrive's own download cache, so removing it

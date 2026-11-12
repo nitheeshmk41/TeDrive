@@ -27,17 +27,38 @@ class TdJson {
       _receive = lib.lookupFunction<_ReceiveC, _ReceiveDart>('td_receive'),
       _execute = lib.lookupFunction<_ExecuteC, _ExecuteDart>('td_execute');
 
+  /// Loads TDLib. On Android the library is inside the app and found by
+  /// name. On desktop it is shipped next to the program, so it is opened by
+  /// its full path rather than relying on the system's search path.
   factory TdJson.open() {
-    if (Platform.isWindows) {
-      try {
-        return TdJson._(ffi.DynamicLibrary.open('tdjson.dll'));
-      } catch (_) {
-        return TdJson._(ffi.DynamicLibrary.open('libtdjson.dll'));
-      }
-    } else if (Platform.isMacOS) {
-      return TdJson._(ffi.DynamicLibrary.open('libtdjson.dylib'));
+    if (Platform.isAndroid) {
+      return TdJson._(ffi.DynamicLibrary.open('libtdjson.so'));
     }
-    return TdJson._(ffi.DynamicLibrary.open('libtdjson.so'));
+    final separator = Platform.pathSeparator;
+    final exe = Platform.resolvedExecutable;
+    final dir = exe.substring(0, exe.lastIndexOf(separator));
+    final candidates = <String>[
+      if (Platform.isWindows) ...[
+        '$dir${separator}tdjson.dll',
+        'tdjson.dll',
+      ] else if (Platform.isMacOS) ...[
+        // TeDrive.app/Contents/MacOS/<exe> -> TeDrive.app/Contents/Frameworks
+        '$dir/../Frameworks/libtdjson.dylib',
+        'libtdjson.dylib',
+      ] else ...[
+        '$dir/lib/libtdjson.so',
+        'libtdjson.so',
+      ],
+    ];
+    Object? lastError;
+    for (final path in candidates) {
+      try {
+        return TdJson._(ffi.DynamicLibrary.open(path));
+      } on ArgumentError catch (e) {
+        lastError = e;
+      }
+    }
+    throw ArgumentError('TDLib could not be loaded: $lastError');
   }
 
   final _CreateClientIdDart _createClientId;

@@ -1,15 +1,25 @@
-name: Release
+name: Build and release
 
-# Builds the Android app and the web demo when a version tag is pushed,
-# and attaches them to a GitHub release.
+# Every push to main builds all platforms, so problems show up early.
+# Pushing a version tag (v1.0.0) also publishes the builds as a GitHub release.
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
+    tags: ['v*']
   workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # TDLib (Telegram's client library) is built from source for desktop.
+  # This is the same version (1.8.15) as the library inside the Android app,
+  # so every platform talks to Telegram in exactly the same way.
+  TDLIB_COMMIT: 8e1a7dbac29cea82292f33d6c11c43e13ffcf658
 
 jobs:
   test:
@@ -31,8 +41,8 @@ jobs:
         working-directory: app
         run: dart test
 
-  build-android:
-    name: Build Android APKs
+  android:
+    name: Android
     needs: test
     runs-on: ubuntu-latest
     steps:
@@ -45,24 +55,43 @@ jobs:
         with:
           channel: stable
           cache: true
+      - name: Set up release signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::warning::No signing secrets set. The APK is signed with a throwaway debug key, so later versions cannot update it in place."
+            exit 0
+          fi
+          echo "$KEYSTORE_BASE64" | base64 --decode > app/android/app/release.jks
+          {
+            echo "storeFile=release.jks"
+            echo "storePassword=$KEYSTORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+          } > app/android/key.properties
       - name: Install dependencies
         working-directory: app
         run: flutter pub get
       - name: Build APKs
         working-directory: app
         run: flutter build apk --release --split-per-abi --android-skip-build-dependency-validation
-      - name: Collect APKs
+      - name: Collect
         run: |
           mkdir -p artifacts
-          cp app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "artifacts/TeDrive-${GITHUB_REF_NAME}-android-arm64.apk"
-          cp app/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk "artifacts/TeDrive-${GITHUB_REF_NAME}-android-arm32.apk"
+          cp app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk artifacts/TeDrive-android-arm64.apk
+          cp app/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk artifacts/TeDrive-android-arm32.apk
       - uses: actions/upload-artifact@v4
         with:
           name: android
-          path: artifacts/*.apk
+          path: artifacts/*
+          if-no-files-found: error
 
-  build-web-demo:
-    name: Build web demo
+  web-demo:
+    name: Web demo
     needs: test
     runs-on: ubuntu-latest
     steps:
@@ -71,50 +100,234 @@ jobs:
         with:
           channel: stable
           cache: true
-      - name: Install dependencies
+      - name: Build
         working-directory: app
-        run: flutter pub get
-      - name: Build web
-        working-directory: app
-        run: flutter build web --release --no-tree-shake-icons
+        run: |
+          flutter pub get
+          flutter build web --release --no-tree-shake-icons
       - name: Package
         run: |
           mkdir -p artifacts
           cd app/build/web
-          zip -r "../../../artifacts/TeDrive-${GITHUB_REF_NAME}-web-demo.zip" .
+          zip -qr ../../../artifacts/TeDrive-web-demo.zip .
       - uses: actions/upload-artifact@v4
         with:
           name: web-demo
-          path: artifacts/*.zip
+          path: artifacts/*
+          if-no-files-found: error
+
+  linux:
+    name: Linux
+    needs: test
+    # The oldest supported Ubuntu, so the build also runs on newer systems.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build clang cmake pkg-config \
+            libgtk-3-dev liblzma-dev libstdc++-12-dev libsecret-1-dev libjsoncpp-dev \
+            gperf libssl-dev zlib1g-dev
+      - name: Restore TDLib
+        id: tdlib
+        uses: actions/cache@v4
+        with:
+          path: tdlib-out
+          key: tdlib-linux-x64-${{ env.TDLIB_COMMIT }}-v1
+      - name: Build TDLib
+        if: steps.tdlib.outputs.cache-hit != 'true'
+        run: |
+          git init -q td && cd td
+          git remote add origin https://github.com/tdlib/td.git
+          git fetch -q --depth 1 origin "$TDLIB_COMMIT"
+          git checkout -q FETCH_HEAD
+          mkdir build && cd build
+          cmake -DCMAKE_BUILD_TYPE=Release ..
+          cmake --build . --target tdjson -j "$(nproc)"
+          mkdir -p ../../tdlib-out
+          cp -L libtdjson.so ../../tdlib-out/libtdjson.so
+          strip --strip-unneeded ../../tdlib-out/libtdjson.so
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Build app
+        working-directory: app
+        run: |
+          flutter config --enable-linux-desktop
+          flutter pub get
+          flutter build linux --release
+      - name: Package
+        run: |
+          bundle=app/build/linux/x64/release/bundle
+          cp tdlib-out/libtdjson.so "$bundle/lib/libtdjson.so"
+          mkdir -p artifacts stage
+          cp -r "$bundle" stage/TeDrive
+          tar -C stage -czf artifacts/TeDrive-linux-x64.tar.gz TeDrive
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: artifacts/*
+          if-no-files-found: error
+
+  windows:
+    name: Windows
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore TDLib
+        id: tdlib
+        uses: actions/cache@v4
+        with:
+          path: tdlib-out
+          key: tdlib-windows-x64-${{ env.TDLIB_COMMIT }}-v1
+      - name: Build TDLib
+        if: steps.tdlib.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          vcpkg install gperf:x64-windows openssl:x64-windows zlib:x64-windows
+          if ($LASTEXITCODE -ne 0) { throw 'vcpkg failed' }
+          git init -q td
+          Set-Location td
+          git remote add origin https://github.com/tdlib/td.git
+          git fetch -q --depth 1 origin $env:TDLIB_COMMIT
+          git checkout -q FETCH_HEAD
+          New-Item -ItemType Directory build | Out-Null
+          Set-Location build
+          cmake -A x64 "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" ..
+          if ($LASTEXITCODE -ne 0) { throw 'cmake configure failed' }
+          cmake --build . --target tdjson --config Release --parallel
+          if ($LASTEXITCODE -ne 0) { throw 'TDLib build failed' }
+          New-Item -ItemType Directory -Force ..\..\tdlib-out | Out-Null
+          # tdjson.dll plus the OpenSSL and zlib DLLs it needs.
+          Copy-Item Release\*.dll ..\..\tdlib-out\
+          Get-ChildItem ..\..\tdlib-out
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Build app
+        working-directory: app
+        run: |
+          flutter config --enable-windows-desktop
+          flutter pub get
+          flutter build windows --release
+      - name: Package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $release = 'app\build\windows\x64\runner\Release'
+          Copy-Item tdlib-out\*.dll $release
+          if (-not (Test-Path "$release\tdjson.dll")) { throw 'tdjson.dll is missing' }
+          if (-not (Test-Path "$release\TeDrive.exe")) { throw 'TeDrive.exe is missing' }
+          New-Item -ItemType Directory -Force artifacts, stage | Out-Null
+          Copy-Item $release stage\TeDrive -Recurse
+          Compress-Archive -Path stage\TeDrive -DestinationPath artifacts\TeDrive-windows-x64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: artifacts/*
+          if-no-files-found: error
+
+  macos:
+    name: macOS
+    needs: test
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore TDLib
+        id: tdlib
+        uses: actions/cache@v4
+        with:
+          path: tdlib-out
+          key: tdlib-macos-arm64-${{ env.TDLIB_COMMIT }}-v1
+      - name: Build TDLib
+        if: steps.tdlib.outputs.cache-hit != 'true'
+        run: |
+          brew install gperf openssl@3
+          git init -q td && cd td
+          git remote add origin https://github.com/tdlib/td.git
+          git fetch -q --depth 1 origin "$TDLIB_COMMIT"
+          git checkout -q FETCH_HEAD
+          mkdir build && cd build
+          # OpenSSL is linked in statically so the app has no Homebrew dependency.
+          cmake -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+            -DOPENSSL_ROOT_DIR="$(brew --prefix openssl@3)" \
+            -DOPENSSL_USE_STATIC_LIBS=TRUE ..
+          cmake --build . --target tdjson -j "$(sysctl -n hw.ncpu)"
+          mkdir -p ../../tdlib-out
+          cp -L libtdjson.dylib ../../tdlib-out/libtdjson.dylib
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Build app
+        working-directory: app
+        run: |
+          flutter config --enable-macos-desktop
+          flutter pub get
+          flutter build macos --release
+      - name: Package
+        run: |
+          app="app/build/macos/Build/Products/Release/TeDrive.app"
+          mkdir -p "$app/Contents/Frameworks"
+          cp tdlib-out/libtdjson.dylib "$app/Contents/Frameworks/libtdjson.dylib"
+          install_name_tool -id @rpath/libtdjson.dylib "$app/Contents/Frameworks/libtdjson.dylib"
+          # Not notarised: an ad-hoc signature is the most an unpaid build can have.
+          codesign --force --deep --sign - "$app"
+          mkdir -p artifacts
+          ditto -c -k --keepParent "$app" artifacts/TeDrive-macos-arm64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: artifacts/*
+          if-no-files-found: error
 
   publish:
     name: Publish GitHub release
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: [build-android, build-web-demo]
+    # Android is required. Each desktop build is included if it succeeded.
+    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/') && needs.android.result == 'success' }}
+    needs: [android, web-demo, linux, windows, macos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
         with:
           path: assets
           merge-multiple: true
+      - name: Add the version to the file names
+        run: |
+          cd assets
+          for f in TeDrive-*; do
+            mv "$f" "${f/TeDrive-/TeDrive-${GITHUB_REF_NAME}-}"
+          done
+          ls -la
       - uses: softprops/action-gh-release@v2
         with:
           name: TeDrive ${{ github.ref_name }}
           files: assets/*
           body: |
-            A personal cloud drive that keeps your files in a private channel of your own Telegram account.
+            A personal cloud drive that keeps your files in a private channel of your own Telegram account. No TeDrive server, no subscription.
 
             ### Downloads
 
             | File | For |
             | :--- | :--- |
-            | `TeDrive-${{ github.ref_name }}-android-arm64.apk` | Most Android phones (recommended) |
-            | `TeDrive-${{ github.ref_name }}-android-arm32.apk` | Older 32-bit Android phones |
-            | `TeDrive-${{ github.ref_name }}-web-demo.zip` | Web demo with sample files. It does not connect to Telegram. |
+            | `android-arm64.apk` | Most Android phones (recommended) |
+            | `android-arm32.apk` | Older 32-bit Android phones |
+            | `windows-x64.zip` | Windows 10 and 11. Unzip and run `TeDrive.exe`. |
+            | `linux-x64.tar.gz` | Linux (Ubuntu 22.04 or newer and similar). Unpack and run `TeDrive/tedrive`. |
+            | `macos-arm64.zip` | Macs with Apple Silicon. Not notarised: right-click the app and choose Open the first time. |
+            | `web-demo.zip` | A demo with sample files. It does not connect to Telegram. |
 
-            ### Installing on Android
+            A file missing from this list did not build for this release.
 
-            1. Download the APK to your phone and open it. Allow installing from this source if asked.
-            2. Open TeDrive and follow the setup: it asks for a free Telegram API ID and hash from [my.telegram.org](https://my.telegram.org), then your phone number.
+            ### Before you install
 
-            These APKs are signed with a development key, so Android cannot update them from a store, and Play Protect may ask you to confirm the install.
+            - **Android is the tested platform.** The Windows, Linux and macOS apps are first builds: they use the same code and the same Telegram library, but have had little real-world testing. Phone backup, the system file picker and the built-in video player are Android features.
+            - **Setup** needs a free Telegram API ID and hash from [my.telegram.org](https://my.telegram.org), then your phone number. Sign in with the same number on every device to see the same files.
+            - **Linux** needs GTK 3, OpenSSL 3 and a keyring service (GNOME Keyring or KWallet).
+            - **Keep a second copy of anything irreplaceable.** Telegram is not a contracted storage service.

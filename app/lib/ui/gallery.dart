@@ -206,7 +206,7 @@ class _Badge extends StatelessWidget {
   );
 }
 
-/// Slivers for the grid view: one titled section per month.
+/// Slivers for the grid view: one titled section per day.
 List<Widget> gallerySlivers({
   required BuildContext context,
   required DriveController drive,
@@ -216,7 +216,7 @@ List<Widget> gallerySlivers({
 }) {
   final theme = Theme.of(context);
   return [
-    for (final group in groupByMonth(files)) ...[
+    for (final group in groupByDay(files)) ...[
       SliverToBoxAdapter(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),

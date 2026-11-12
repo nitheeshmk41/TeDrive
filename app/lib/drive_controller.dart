@@ -31,7 +31,8 @@ class UploadTask {
       directPath = null,
       taken = null,
       knownSha = null,
-      fromBackup = false;
+      fromBackup = false,
+      deleteAfter = false;
 
   /// A photo or video read straight from the phone's storage by backup.
   UploadTask.fromPath(
@@ -41,8 +42,9 @@ class UploadTask {
     this.folder,
     this.taken,
     this.knownSha,
-  }) : source = null,
-       fromBackup = true;
+    this.fromBackup = true,
+    this.deleteAfter = false,
+  }) : source = null;
 
   final PlatformFile? source;
 
@@ -61,6 +63,10 @@ class UploadTask {
 
   /// Backup tasks leave the list by themselves once they succeed.
   final bool fromBackup;
+
+  /// The file at [directPath] is a temporary copy to remove afterwards
+  /// (a file another app shared into TeDrive).
+  final bool deleteAfter;
 
   /// The file's SHA-256, set once it has been computed.
   String? sha;
@@ -263,6 +269,26 @@ class DriveController extends ChangeNotifier {
     _replace(_current(file).withFolder(name));
   }
 
+  /// Renames [file]. Returns the name actually used, or null if [typed]
+  /// had nothing usable in it.
+  Future<String?> rename(StoredFile file, String typed) async {
+    final current = _current(file);
+    final name = cleanNewName(typed, original: current.name);
+    if (name == null) return null;
+    if (name != current.name) {
+      await _service.rename(_chatId!, current, name);
+      _replace(_current(file).renamed(name));
+    }
+    return name;
+  }
+
+  /// Keeps downloaded copies on this device under [maxBytes].
+  Future<void> trimCache(int maxBytes) async {
+    if (isDemo) return;
+    await _service.trimCache(maxBytes);
+    recheckLocalPaths();
+  }
+
   /// The newest known state of [file] (its local path may have changed).
   StoredFile _current(StoredFile file) => files.firstWhere(
     (f) => f.messageId == file.messageId,
@@ -310,6 +336,8 @@ class DriveController extends ChangeNotifier {
     String? folder,
     DateTime? taken,
     String? knownSha,
+    bool fromBackup = true,
+    bool deleteAfter = false,
   }) {
     final task = UploadTask.fromPath(
       path,
@@ -318,6 +346,8 @@ class DriveController extends ChangeNotifier {
       folder: folder,
       taken: taken,
       knownSha: knownSha,
+      fromBackup: fromBackup,
+      deleteAfter: deleteAfter,
     );
     uploads.insert(0, task);
     _notify();
@@ -488,7 +518,7 @@ class DriveController extends ChangeNotifier {
       // A private copy is removed below, so it is not an offline copy. A
       // backed-up original stays where it is and counts as one.
       files = sortNewestFirst([
-        stored.withLocalPath(directPath),
+        stored.withLocalPath(task.deleteAfter ? null : directPath),
         ...files.where((f) => f.messageId != stored.messageId),
       ]);
       task
@@ -510,6 +540,13 @@ class DriveController extends ChangeNotifier {
       try {
         if (dir.existsSync()) dir.deleteSync(recursive: true);
         if (ownsPickerCopy) File(pickerCopy).deleteSync();
+        // A shared-in temporary copy is kept only while a retry is possible.
+        if (task.deleteAfter &&
+            directPath != null &&
+            task.status != UploadStatus.failed) {
+          final shared = File(directPath);
+          if (shared.existsSync()) shared.deleteSync();
+        }
       } on FileSystemException {
         // Android clears the cache directory on its own if this fails.
       }

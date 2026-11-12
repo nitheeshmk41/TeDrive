@@ -13,6 +13,58 @@ const _channel = MethodChannel('tedrive/device');
 
 bool get isAndroid => !kIsWeb && Platform.isAndroid;
 
+/// Windows, Linux or macOS.
+bool get isDesktop =>
+    !kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
+
+/// Whether the in-app video and audio player works on this platform.
+bool get hasBuiltInPlayer =>
+    kIsWeb || Platform.isAndroid || Platform.isIOS || Platform.isMacOS;
+
+/// A file another app shared into TeDrive.
+typedef SharedFile = ({
+  String path,
+  String name,
+  int size,
+  DateTime? taken,
+
+  /// True for a private copy that should be deleted after upload.
+  bool temporary,
+});
+
+/// Takes the files other apps have shared into TeDrive since the last call.
+Future<List<SharedFile>> takeSharedFiles() async {
+  if (!isAndroid) return const [];
+  final raw = await _channel.invokeListMethod<Map<Object?, Object?>>(
+    'takeSharedFiles',
+  );
+  return [
+    for (final m in raw ?? const <Map<Object?, Object?>>[])
+      (
+        path: m['path'] as String,
+        name: m['name'] as String,
+        size: m['size'] as int,
+        taken: (m['time'] as int? ?? 0) > 0
+            ? DateTime.fromMillisecondsSinceEpoch((m['time'] as int) * 1000)
+            : null,
+        temporary: m['temp'] == true,
+      ),
+  ];
+}
+
+/// Calls [listener] whenever new shared files arrive while the app is
+/// running. Pass null to stop.
+void onSharedFiles(void Function()? listener) {
+  if (!isAndroid) return;
+  _channel.setMethodCallHandler(
+    listener == null
+        ? null
+        : (call) async {
+            if (call.method == 'sharedFilesReady') listener();
+          },
+  );
+}
+
 /// A readable name for this device, e.g. "Samsung SM-A525F".
 Future<String> deviceName() async {
   if (kIsWeb) return 'Web browser';
@@ -39,19 +91,28 @@ Future<String> deviceName() async {
 /// Opens Android's share sheet for a file, with its real MIME type so that
 /// apps such as WhatsApp accept it. Returns false where this is not
 /// available, so the caller can fall back.
-Future<bool> shareFile(String path, {required String mime}) async {
+Future<bool> shareFile(
+  String path, {
+  required String mime,
+  String? name,
+}) async {
   if (!isAndroid) return false;
-  await _channel.invokeMethod<void>('share', {'path': path, 'mime': mime});
+  await _channel.invokeMethod<void>('share', {
+    'path': path,
+    'mime': mime,
+    'name': name,
+  });
   return true;
 }
 
 /// Opens a file in whichever installed app handles its type.
 /// Returns false if no app can open it.
-Future<bool> openFile(String path, {required String mime}) async {
+Future<bool> openFile(String path, {required String mime, String? name}) async {
   if (!isAndroid) return false;
   return await _channel.invokeMethod<bool>('open', {
         'path': path,
         'mime': mime,
+        'name': name,
       }) ??
       false;
 }

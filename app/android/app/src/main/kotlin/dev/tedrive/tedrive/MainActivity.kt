@@ -50,7 +50,10 @@ class MainActivity : FlutterActivity() {
         TeDriveEngine.attach(flutterEngine)
         val messenger = flutterEngine.dartExecutor.binaryMessenger
         MethodChannel(messenger, "tedrive/thumbnails").setMethodCallHandler(::onThumbnailCall)
-        MethodChannel(messenger, "tedrive/device").setMethodCallHandler(::onDeviceCall)
+        val deviceChannel = MethodChannel(messenger, "tedrive/device")
+        deviceChannel.setMethodCallHandler(::onDeviceCall)
+        // Tell the Flutter side when another app shares files into TeDrive.
+        IncomingShares.onReady = { deviceChannel.invokeMethod("sharedFilesReady", null) }
     }
 
     // ------------------------------------------------------------ Device
@@ -73,6 +76,7 @@ class MainActivity : FlutterActivity() {
             "deleteMedia" -> deleteMedia(call.argument<List<Map<String, Any>>>("items") ?: emptyList(), result)
             "deviceStatus" -> result.success(deviceStatus())
             "deviceName" -> result.success(deviceName())
+            "takeSharedFiles" -> result.success(IncomingShares.take())
             "share" -> viewOrShare(call, result, share = true)
             "open" -> viewOrShare(call, result, share = false)
             "startService" -> result.success(startService(call))
@@ -299,13 +303,15 @@ class MainActivity : FlutterActivity() {
             return
         }
         try {
-            val uri = FileProvider.getUriForFile(this, "$packageName.files", File(path))
+            // A renamed file is handed over under its new name.
+            val shown = aliasFor(File(path), call.argument<String>("name"))
+            val uri = FileProvider.getUriForFile(this, "$packageName.files", shown)
             val intent = if (share) {
                 Intent(Intent.ACTION_SEND).setType(mime).putExtra(Intent.EXTRA_STREAM, uri)
             } else {
                 Intent(Intent.ACTION_VIEW).setDataAndType(uri, mime)
             }
-            intent.clipData = ClipData.newRawUri(File(path).name, uri)
+            intent.clipData = ClipData.newRawUri(shown.name, uri)
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             if (share) {
                 startActivity(Intent.createChooser(intent, null))
@@ -320,6 +326,27 @@ class MainActivity : FlutterActivity() {
             }
         } catch (e: Throwable) {
             result.error("share", e.message ?: "Could not hand the file to another app", null)
+        }
+    }
+
+    /**
+     * Returns a second name for the same file (a hard link in the cache, so
+     * no bytes are copied), or the file itself if that is not possible, for
+     * example when it lives on shared storage.
+     */
+    private fun aliasFor(source: File, name: String?): File {
+        if (name.isNullOrBlank() || name == source.name) return source
+        return try {
+            val root = File(cacheDir, "renamed")
+            // Old aliases are only names; removing them frees nothing but clutter.
+            root.listFiles()?.filter { System.currentTimeMillis() - it.lastModified() > 24 * 60 * 60 * 1000 }
+                ?.forEach { it.deleteRecursively() }
+            val dir = File(root, System.nanoTime().toString()).apply { mkdirs() }
+            val alias = File(dir, name.replace(Regex("[/\\\\\\u0000]"), "_"))
+            android.system.Os.link(source.path, alias.path)
+            alias
+        } catch (e: Throwable) {
+            source
         }
     }
 

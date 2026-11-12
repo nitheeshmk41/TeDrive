@@ -11,6 +11,7 @@ import '../device.dart' as device;
 import '../drive_controller.dart';
 import '../stored_file.dart';
 import '../tedrive_service.dart';
+import 'account_page.dart';
 import 'backup_page.dart';
 import 'gallery.dart';
 import 'player_page.dart';
@@ -49,18 +50,51 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     // Backup compares the phone with the drive, so load the drive first.
     _drive.load().then((_) {
-      if (mounted && _hasBackup) _backup.init();
+      if (!mounted) return;
+      if (_hasBackup) _backup.init();
+      // Keep the app light: downloaded copies are a cache, not storage.
+      _drive.trimCache(_cacheLimitBytes).catchError((_) {});
+      _takeSharedFiles();
     });
+    device.onSharedFiles(_takeSharedFiles);
   }
+
+  /// Downloaded copies are trimmed to this size, oldest use first.
+  static const _cacheLimitBytes = 1024 * 1024 * 1024;
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && _hasBackup) _backup.onResume();
+    if (state != AppLifecycleState.resumed) return;
+    if (_hasBackup) _backup.onResume();
+    _takeSharedFiles();
+  }
+
+  /// Uploads files that another app shared into TeDrive.
+  Future<void> _takeSharedFiles() async {
+    if (!mounted || _drive.isDemo || _drive.loading) return;
+    final shared = await device.takeSharedFiles();
+    if (shared.isEmpty || !mounted) return;
+    for (final f in shared) {
+      _drive.enqueuePath(
+        f.path,
+        name: f.name,
+        size: f.size,
+        taken: f.taken,
+        fromBackup: false,
+        deleteAfter: f.temporary,
+      );
+    }
+    _toast(
+      shared.length == 1
+          ? 'Adding ${shared.first.name} to your drive'
+          : 'Adding ${shared.length} files to your drive',
+    );
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    device.onSharedFiles(null);
     _backup.dispose();
     _drive.dispose();
     _search.dispose();
@@ -167,7 +201,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             ),
           ),
         );
-      case FileKind.video || FileKind.audio:
+      case FileKind.video || FileKind.audio when device.hasBuiltInPlayer:
         Navigator.of(context).push(
           MaterialPageRoute<void>(
             builder: (_) => PlayerPage(
@@ -189,7 +223,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (path == null) return;
     final mime = mimeOf(file.name);
     if (device.isAndroid) {
-      if (!await device.openFile(path, mime: mime)) {
+      if (!await device.openFile(path, mime: mime, name: file.name)) {
         _toast('No app on this phone can open ${file.name}');
       }
     } else {
@@ -202,12 +236,59 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final path = await _fetch(file, 'Preparing');
     if (path == null) return;
     final mime = mimeOf(file.name);
-    if (!await device.shareFile(path, mime: mime)) {
+    if (!await device.shareFile(path, mime: mime, name: file.name)) {
       await SharePlus.instance.share(
-        ShareParams(files: [XFile(path, mimeType: mime)]),
+        ShareParams(
+          files: [XFile(path, mimeType: mime, name: file.name)],
+        ),
       );
     }
   });
+
+  /// Desktop: copies the file into a folder the user picks.
+  Future<void> _saveCopy(StoredFile file) => _guard(() async {
+    if (_demoBlocks()) return;
+    final folder = await FilePicker.getDirectoryPath(
+      dialogTitle: 'Save ${file.name} to…',
+    );
+    if (folder == null) return;
+    final path = await _fetch(file, 'Downloading');
+    if (path == null) return;
+    final target = File(
+      '$folder${Platform.pathSeparator}${safeFileName(file.name)}',
+    );
+    if (target.existsSync()) {
+      _toast('${target.path} already exists');
+      return;
+    }
+    await File(path).copy(target.path);
+    _toast('Saved to ${target.path}');
+  });
+
+  Future<void> _rename(StoredFile file) async {
+    final typed = await showDialog<String>(
+      context: context,
+      builder: (_) => _RenameDialog(currentName: _latest(file).name),
+    );
+    if (typed == null) return;
+    await _guard(() async {
+      final name = await _drive.rename(file, typed);
+      _toast(name == null ? 'That name cannot be used' : 'Renamed to $name');
+    });
+  }
+
+  void _openAccount() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => AccountPage(
+          service: widget.service,
+          drive: _drive,
+          onLogOut: _logOut,
+          onAbout: _showAbout,
+        ),
+      ),
+    );
+  }
 
   Future<void> _keepOffline(StoredFile file) => _guard(() async {
     if (await _fetch(file, 'Downloading') != null) {
@@ -393,10 +474,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   title: const Text('Share or send'),
                   onTap: () => run(_share),
                 ),
+                if (device.isDesktop)
+                  ListTile(
+                    leading: const Icon(Icons.save_alt),
+                    title: const Text('Save a copy to this computer'),
+                    onTap: () => run(_saveCopy),
+                  ),
                 ListTile(
                   leading: const Icon(Icons.open_in_new),
                   title: const Text('Open in another app'),
                   onTap: () => run(_openElsewhere),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.drive_file_rename_outline),
+                  title: const Text('Rename'),
+                  onTap: () => run(_rename),
                 ),
                 ListTile(
                   leading: const Icon(Icons.photo_album_outlined),
@@ -626,46 +718,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     icon: const Icon(Icons.close),
                     onPressed: () => setState(_search.clear),
                   ),
-                PopupMenuButton<String>(
-                  tooltip: 'Account and settings',
+                IconButton(
+                  tooltip: 'Refresh',
+                  icon: const Icon(Icons.refresh),
+                  onPressed: _drive.loading ? null : _drive.load,
+                ),
+                IconButton(
+                  tooltip: 'Account and storage',
                   icon: const Icon(Icons.account_circle_outlined),
-                  onSelected: (v) => switch (v) {
-                    'refresh' => _drive.load(),
-                    'about' => _showAbout(),
-                    _ => _logOut(),
-                  },
-                  itemBuilder: (_) => [
-                    PopupMenuItem(
-                      enabled: false,
-                      child: Text('This device: ${widget.service.deviceName}'),
-                    ),
-                    const PopupMenuDivider(),
-                    const PopupMenuItem(
-                      value: 'refresh',
-                      child: ListTile(
-                        leading: Icon(Icons.refresh),
-                        title: Text('Refresh'),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ),
-                    const PopupMenuItem(
-                      value: 'about',
-                      child: ListTile(
-                        leading: Icon(Icons.info_outline),
-                        title: Text('About TeDrive'),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ),
-                    if (!_drive.isDemo)
-                      const PopupMenuItem(
-                        value: 'logout',
-                        child: ListTile(
-                          leading: Icon(Icons.logout),
-                          title: Text('Log out'),
-                          contentPadding: EdgeInsets.zero,
-                        ),
-                      ),
-                  ],
+                  onPressed: _openAccount,
                 ),
                 const SizedBox(width: 4),
               ],
@@ -1618,6 +1679,67 @@ class _AlbumDialogState extends State<_AlbumDialog> {
       TextButton(
         onPressed: () => Navigator.pop(context),
         child: const Text('Cancel'),
+      ),
+    ],
+  );
+}
+
+/// Asks for a new file name. The extension is shown but left unselected,
+/// so typing replaces only the name part.
+class _RenameDialog extends StatefulWidget {
+  const _RenameDialog({required this.currentName});
+  final String currentName;
+
+  @override
+  State<_RenameDialog> createState() => _RenameDialogState();
+}
+
+class _RenameDialogState extends State<_RenameDialog> {
+  late final _name = TextEditingController(text: widget.currentName);
+
+  @override
+  void initState() {
+    super.initState();
+    final dot = widget.currentName.lastIndexOf('.');
+    _name.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: dot > 0 ? dot : widget.currentName.length,
+    );
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    if (_name.text.trim().isNotEmpty) Navigator.pop(context, _name.text);
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Rename'),
+    content: TextField(
+      controller: _name,
+      autofocus: true,
+      maxLength: 120,
+      textInputAction: TextInputAction.done,
+      decoration: const InputDecoration(
+        labelText: 'Name',
+        helperText: 'The new name shows on all your devices.',
+      ),
+      onSubmitted: (_) => _submit(),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        style: FilledButton.styleFrom(minimumSize: const Size(64, 40)),
+        onPressed: _submit,
+        child: const Text('Rename'),
       ),
     ],
   );
