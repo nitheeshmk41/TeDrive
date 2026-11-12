@@ -3,6 +3,7 @@
 // Only four native functions are needed. Requests and responses are plain
 // JSON, so this binding does not depend on the TDLib version.
 import 'dart:ffi' as ffi;
+import 'dart:io' show Platform;
 import 'dart:isolate';
 
 import 'package:ffi/ffi.dart';
@@ -26,7 +27,18 @@ class TdJson {
       _receive = lib.lookupFunction<_ReceiveC, _ReceiveDart>('td_receive'),
       _execute = lib.lookupFunction<_ExecuteC, _ExecuteDart>('td_execute');
 
-  factory TdJson.open() => TdJson._(ffi.DynamicLibrary.open('libtdjson.so'));
+  factory TdJson.open() {
+    if (Platform.isWindows) {
+      try {
+        return TdJson._(ffi.DynamicLibrary.open('tdjson.dll'));
+      } catch (_) {
+        return TdJson._(ffi.DynamicLibrary.open('libtdjson.dll'));
+      }
+    } else if (Platform.isMacOS) {
+      return TdJson._(ffi.DynamicLibrary.open('libtdjson.dylib'));
+    }
+    return TdJson._(ffi.DynamicLibrary.open('libtdjson.so'));
+  }
 
   final _CreateClientIdDart _createClientId;
   final _SendDart _send;

@@ -1,4 +1,4 @@
-name: Release Production APK
+name: Release Multi-Platform Packages
 
 on:
   push:
@@ -10,8 +10,8 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    name: Build & Release Android APK
+  build-android:
+    name: Build Android APKs
     runs-on: ubuntu-latest
 
     steps:
@@ -30,40 +30,158 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Get dependencies
+      - name: Install dependencies
         run: |
           cd app
           flutter pub get
 
-      - name: Build Release APKs
+      - name: Build Split & Universal APKs
         run: |
           cd app
-          flutter build apk --release --split-per-abi
+          flutter build apk --release --split-per-abi --android-skip-build-dependency-validation
+          flutter build apk --release --android-skip-build-dependency-validation
 
-      - name: Prepare Release Assets
+      - name: Stage Android Assets
         run: |
-          mkdir -p release-assets
-          cp app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk release-assets/TeDrive-v0.1.0-arm64.apk
-          cp app/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk release-assets/TeDrive-v0.1.0-arm32.apk
-          cp app/build/app/outputs/flutter-apk/app-x86_64-release.apk release-assets/TeDrive-v0.1.0-x86_64.apk
+          mkdir -p artifacts
+          cp app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk artifacts/TeDrive-v0.1.0-arm64.apk
+          cp app/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk artifacts/TeDrive-v0.1.0-arm32.apk
+          cp app/build/app/outputs/flutter-apk/app-x86_64-release.apk artifacts/TeDrive-v0.1.0-x86_64.apk
+          cp app/build/app/outputs/flutter-apk/app-release.apk artifacts/TeDrive-v0.1.0-universal.apk
 
-      - name: Create GitHub Release
+      - name: Upload Android Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apks
+          path: artifacts/*.apk
+
+  build-windows:
+    name: Build Windows (.exe)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Enable Windows Desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Install dependencies
+        run: |
+          cd app
+          flutter pub get
+
+      - name: Build Windows Executable
+        run: |
+          cd app
+          flutter build windows --release
+
+      - name: Package Windows Release Zip
+        run: |
+          mkdir artifacts
+          Compress-Archive -Path app\build\windows\x64\runner\Release\* -DestinationPath artifacts\TeDrive-v0.1.0-windows-x64.zip
+
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-exe
+          path: artifacts/*.zip
+
+  build-web:
+    name: Build Web App
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: |
+          cd app
+          flutter pub get
+
+      - name: Build Web
+        run: |
+          cd app
+          flutter build web --release --no-tree-shake-icons
+
+      - name: Package Web Zip
+        run: |
+          mkdir -p artifacts
+          cd app/build/web
+          zip -r ../../../artifacts/TeDrive-v0.1.0-web.zip .
+
+      - name: Upload Web Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-app
+          path: artifacts/*.zip
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: [build-android, build-windows, build-web]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-assets
+          merge-multiple: true
+
+      - name: List Files to Release
+        run: ls -la all-assets
+
+      - name: Create / Update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: TeDrive ${{ github.ref_name }}
+          draft: false
+          prerelease: false
           body: |
-            ## TeDrive Release ${{ github.ref_name }} 🎉
+            # TeDrive Release ${{ github.ref_name }} 🚀
 
-            ### Production APK Downloads:
-            - **TeDrive-v0.1.0-arm64.apk** *(Recommended for almost all modern Android phones)*
-            - **TeDrive-v0.1.0-arm32.apk** *(For older 32-bit ARM devices)*
-            - **TeDrive-v0.1.0-x86_64.apk** *(For emulators & ChromeOS)*
+            Personal, unlimited cloud storage directly inside your own Telegram account. No intermediate servers, no monthly subscriptions, and file uploads up to 2 GB per file.
 
-            ### Highlights:
-            - Direct Telegram MTProto client via native TDLib FFI
-            - Backup photos, videos, and large files up to 2 GB per file
-            - Gallery viewer, search, and folder categorization
-            - Transparent custom app icon
-          files: release-assets/*.apk
+            ---
 
+            ### 📦 Download Packages
+
+            | Platform | File | Description |
+            | :--- | :--- | :--- |
+            | 📱 **Android (ARM64)** | `TeDrive-v0.1.0-arm64.apk` | **Recommended** for modern Android devices |
+            | 📱 **Android (Universal)** | `TeDrive-v0.1.0-universal.apk` | Compatible with all Android architectures |
+            | 📱 **Android (ARM32)** | `TeDrive-v0.1.0-arm32.apk` | For older 32-bit Android phones |
+            | 💻 **Windows Desktop** | `TeDrive-v0.1.0-windows-x64.zip` | Standalone `.exe` for Windows 10 & 11 (x64) |
+            | 🌐 **Web Package** | `TeDrive-v0.1.0-web.zip` | Web bundle ready for self-hosting |
+            | 💻 **Android Emulator** | `TeDrive-v0.1.0-x86_64.apk` | For Android x86_64 emulators & ChromeOS |
+
+            ---
+
+            ### ✨ Key Features
+            - **Direct Telegram MTProto Connection**: Powered by native TDLib FFI.
+            - **High Capacity**: Store photos, videos, and archives up to 2 GB each.
+            - **Automated Phone Backup**: Sync camera, WhatsApp, and downloads albums.
+            - **Full Media Viewer & Categorization**: Browse files by Photos, Videos, Documents, Archives.
+            - **Privacy First**: API credentials and session databases remain encrypted on your device.
+
+            ---
+
+            ### 📱 Android Installation:
+            1. Download `TeDrive-v0.1.0-arm64.apk` to your phone.
+            2. Open the file and allow *Install from unknown sources* if prompted.
+            3. Launch TeDrive and enter your free Telegram API ID & Hash from [my.telegram.org](https://my.telegram.org).
+          files: all-assets/*

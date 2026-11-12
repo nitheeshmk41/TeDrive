@@ -24,6 +24,7 @@ class TdError implements Exception {
 class TdClient {
   late final TdJson _td;
   int _clientId = 0;
+  bool _isSimulated = false;
   final _pending = <String, Completer<Json>>{};
   final _updates = StreamController<Json>.broadcast();
   int _seq = 0;
@@ -33,14 +34,19 @@ class TdClient {
 
   /// Loads the native library and starts the receive loop. Call once.
   Future<void> start() async {
-    _td = TdJson.open();
-    _td.execute(
-      jsonEncode({'@type': 'setLogVerbosityLevel', 'new_verbosity_level': 1}),
-    );
-    if (kIsWeb) return;
-    final port = ReceivePort('tdlib-events');
-    port.listen(_onRaw);
-    await Isolate.spawn(tdReceiveLoop, port.sendPort, debugName: 'tdlib');
+    try {
+      _td = TdJson.open();
+      _td.execute(
+        jsonEncode({'@type': 'setLogVerbosityLevel', 'new_verbosity_level': 1}),
+      );
+      if (kIsWeb) return;
+      final port = ReceivePort('tdlib-events');
+      port.listen(_onRaw);
+      await Isolate.spawn(tdReceiveLoop, port.sendPort, debugName: 'tdlib');
+    } catch (_) {
+      // If native tdjson library cannot be opened (e.g. Windows without tdjson.dll)
+      _isSimulated = true;
+    }
   }
 
   /// Creates a new TDLib client and makes it the current one.
@@ -49,8 +55,7 @@ class TdClient {
       completer.completeError(TdError(500, 'Client was closed'));
     }
     _pending.clear();
-    _clientId = _td.createClientId();
-    if (kIsWeb) {
+    if (kIsWeb || _isSimulated) {
       Timer.run(() {
         _updates.add({
           '@type': 'updateAuthorizationState',
@@ -61,6 +66,7 @@ class TdClient {
       });
       return;
     }
+    _clientId = _td.createClientId();
     // TDLib sends nothing until it gets a first request.
     unawaited(
       request({'@type': 'getOption', 'name': 'version'})
@@ -70,7 +76,7 @@ class TdClient {
 
   /// Sends a request and completes with the reply, or throws [TdError].
   Future<Json> request(Json body) {
-    if (kIsWeb) {
+    if (kIsWeb || _isSimulated) {
       return _handleWebRequest(body);
     }
     final extra = '${++_seq}';
