@@ -40,14 +40,14 @@ Phones fill up, and cloud plans charge every month. Telegram already stores file
 
 | Platform | File |
 | :--- | :--- |
-| Android (most phones) | `TeDrive-…-android-arm64.apk` |
-| Android (old 32-bit phones) | `TeDrive-…-android-arm32.apk` |
+| Android (most phones) | [**TeDrive-android-arm64.apk**](https://tedrive.vercel.app/download/TeDrive-android-arm64.apk) |
+| Android (old 32-bit phones) | [TeDrive-android-arm32.apk](https://tedrive.vercel.app/download/TeDrive-android-arm32.apk) |
 | Windows 10/11 | `TeDrive-…-windows-x64.zip` |
 | macOS (Apple Silicon) | `TeDrive-…-macos-arm64.dmg` |
 | Linux x64 | `TeDrive-…-linux-x64.tar.gz` |
 | Browser | [tedrive.vercel.app](https://tedrive.vercel.app) |
 
-All files are on the [latest release](https://github.com/nitheeshmk41/TeDrive/releases/latest). Step-by-step instructions, including what to do if a download stops at 100%, are in the [install guide](docs/install.md).
+The Android links always give the newest version. All files are also on the [latest release](https://github.com/nitheeshmk41/TeDrive/releases/latest). Step-by-step instructions, including what to do if a download stops at 100%, are in the [install guide](docs/install.md).
 
 ## Quick start
 

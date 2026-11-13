@@ -94,7 +94,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
       AppLockService.instance.onPaused();
       return;
     }
@@ -274,6 +275,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final encPath = await _fetch(file, verb);
     if (encPath == null) return null;
     if (!file.isVault) return encPath;
+    if (kIsWeb) {
+      _toast('Vault files open in the phone or desktop app');
+      return null;
+    }
     if (!VaultSession.instance.isUnlocked) {
       final pass = await _promptVaultPassphrase();
       if (pass == null || pass.isEmpty) return null;
@@ -1067,9 +1072,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 child: Container(
                   margin: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .primaryContainer
+                    color: Theme.of(context).colorScheme.primaryContainer
                         .withValues(alpha: 0.85),
                     borderRadius: BorderRadius.circular(24),
                     border: Border.all(
@@ -1081,12 +1084,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.cloud_upload_outlined,
-                            size: 72,
-                            color: Theme.of(context).colorScheme.primary),
+                        Icon(
+                          Icons.cloud_upload_outlined,
+                          size: 72,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
                         const SizedBox(height: 12),
-                        Text('Drop files to upload',
-                            style: Theme.of(context).textTheme.headlineSmall),
+                        Text(
+                          'Drop files to upload',
+                          style: Theme.of(context).textTheme.headlineSmall,
+                        ),
                       ],
                     ),
                   ),
@@ -1118,9 +1125,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         fromBackup: false,
       );
     }
-    _toast(files.length == 1
-        ? 'Uploading ${files.first.uri.pathSegments.last}'
-        : 'Uploading ${files.length} files');
+    _toast(
+      files.length == 1
+          ? 'Uploading ${files.first.uri.pathSegments.last}'
+          : 'Uploading ${files.length} files',
+    );
   }
 
   Widget _buildHome(BuildContext context) {
@@ -1166,11 +1175,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                               child: Column(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  IconButton(
-                                    tooltip: 'Wi-Fi Transfer (Phone to Laptop)',
-                                    icon: const Icon(Icons.wifi_tethering),
-                                    onPressed: _openWifiTransfer,
-                                  ),
+                                  if (!kIsWeb)
+                                    IconButton(
+                                      tooltip:
+                                          'Wi-Fi Transfer (Phone to Laptop)',
+                                      icon: const Icon(Icons.wifi_tethering),
+                                      onPressed: _openWifiTransfer,
+                                    ),
                                   IconButton(
                                     tooltip: 'Switch theme',
                                     icon: Icon(
@@ -1318,6 +1329,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       ),
     );
     if (preset == null) return;
+    if (kIsWeb) {
+      _toast('Add vault files from the phone or desktop app');
+      return;
+    }
     final picked = await FilePicker.pickFiles();
     if (picked.isEmpty) return;
     _drive.enqueue(
@@ -1391,11 +1406,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   icon: const Icon(Icons.refresh),
                   onPressed: _drive.loading ? null : _drive.load,
                 ),
-                IconButton(
-                  tooltip: 'Phone-to-Laptop Wi-Fi Transfer',
-                  icon: const Icon(Icons.wifi_tethering),
-                  onPressed: _openWifiTransfer,
-                ),
+                if (!kIsWeb)
+                  IconButton(
+                    tooltip: 'Phone-to-Laptop Wi-Fi Transfer',
+                    icon: const Icon(Icons.wifi_tethering),
+                    onPressed: _openWifiTransfer,
+                  ),
                 IconButton(
                   tooltip: 'Switch light or dark theme',
                   icon: Icon(
@@ -1534,9 +1550,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     size: 18,
                   ),
                   label: Text(
-                    _photoMapView ? 'Photo Grid' : 'Photo Map (${geotagged.length})',
+                    _photoMapView
+                        ? 'Photo Grid'
+                        : 'Photo Map (${geotagged.length})',
                   ),
-                  onPressed: () => setState(() => _photoMapView = !_photoMapView),
+                  onPressed: () =>
+                      setState(() => _photoMapView = !_photoMapView),
                 ),
               ],
             ),
@@ -1557,7 +1576,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           files: media,
           onTap: (f) => _tap(f, media),
           onLongPress: _toggleSelect,
-          isSelected: _selecting ? (f) => _selected.contains(f.messageId) : null,
+          isSelected: _selecting
+              ? (f) => _selected.contains(f.messageId)
+              : null,
         ),
     ]);
   }
@@ -1651,22 +1672,33 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       children: [
                         for (var i = 0; i < crumbs.length; i++) ...[
                           if (i > 0)
-                            const Icon(Icons.chevron_right, size: 16, color: Colors.grey),
+                            const Icon(
+                              Icons.chevron_right,
+                              size: 16,
+                              color: Colors.grey,
+                            ),
                           InkWell(
                             onTap: i == crumbs.length - 1
                                 ? null
                                 : () => Navigator.of(context).pushReplacement(
-                                      MaterialPageRoute<void>(
-                                        builder: (_) => _albumPage(crumbs[i]),
-                                      ),
+                                    MaterialPageRoute<void>(
+                                      builder: (_) => _albumPage(crumbs[i]),
                                     ),
+                                  ),
                             child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 4,
+                                vertical: 2,
+                              ),
                               child: Text(
                                 folderBaseName(crumbs[i]),
                                 style: TextStyle(
-                                  fontWeight: i == crumbs.length - 1 ? FontWeight.bold : FontWeight.normal,
-                                  color: i == crumbs.length - 1 ? null : Theme.of(context).colorScheme.primary,
+                                  fontWeight: i == crumbs.length - 1
+                                      ? FontWeight.bold
+                                      : FontWeight.normal,
+                                  color: i == crumbs.length - 1
+                                      ? null
+                                      : Theme.of(context).colorScheme.primary,
                                 ),
                               ),
                             ),
@@ -1683,9 +1715,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
                   child: Text(
                     'Subfolders',
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
+                    style: Theme.of(context).textTheme.titleSmall
+                        ?.copyWith(fontWeight: FontWeight.bold),
                   ),
                 ),
               ),
@@ -1701,13 +1732,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   itemCount: subfolders.length,
                   itemBuilder: (context, i) {
                     final sub = subfolders[i];
-                    final inSub = filesInFolder(_drive.files, sub, recursive: true);
+                    final inSub = filesInFolder(
+                      _drive.files,
+                      sub,
+                      recursive: true,
+                    );
                     return _AlbumCard(
                       drive: _drive,
                       name: folderBaseName(sub),
                       files: inSub,
                       onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(builder: (_) => _albumPage(sub)),
+                        MaterialPageRoute<void>(
+                          builder: (_) => _albumPage(sub),
+                        ),
                       ),
                     );
                   },
@@ -1729,9 +1766,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
                     child: Text(
                       'Files in this folder',
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
+                      style: Theme.of(context).textTheme.titleSmall
+                          ?.copyWith(fontWeight: FontWeight.bold),
                     ),
                   ),
                 ),
@@ -2992,8 +3028,11 @@ class _VaultUnlockCardState extends State<_VaultUnlockCard> {
                 CircleAvatar(
                   radius: 32,
                   backgroundColor: scheme.primaryContainer,
-                  child: Icon(Icons.shield_outlined,
-                      size: 36, color: scheme.onPrimaryContainer),
+                  child: Icon(
+                    Icons.shield_outlined,
+                    size: 36,
+                    color: scheme.onPrimaryContainer,
+                  ),
                 ),
                 const SizedBox(height: 16),
                 Text(
@@ -3021,7 +3060,8 @@ class _VaultUnlockCardState extends State<_VaultUnlockCard> {
                     prefixIcon: const Icon(Icons.key_outlined),
                     suffixIcon: IconButton(
                       icon: Icon(
-                          _obscure ? Icons.visibility : Icons.visibility_off),
+                        _obscure ? Icons.visibility : Icons.visibility_off,
+                      ),
                       onPressed: () => setState(() => _obscure = !_obscure),
                     ),
                     errorText: _error,
@@ -3151,8 +3191,10 @@ class _WifiTransferSheetState extends State<_WifiTransferSheet> {
               ),
               const SizedBox(height: 8),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
                 decoration: BoxDecoration(
                   color: scheme.primaryContainer,
                   borderRadius: BorderRadius.circular(12),
@@ -3176,7 +3218,8 @@ class _WifiTransferSheetState extends State<_WifiTransferSheet> {
                         Clipboard.setData(ClipboardData(text: _url!));
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
-                              content: Text('Wi-Fi Transfer URL copied')),
+                            content: Text('Wi-Fi Transfer URL copied'),
+                          ),
                         );
                       },
                     ),
@@ -3239,8 +3282,10 @@ class _WifiTransferSheetState extends State<_WifiTransferSheet> {
                       );
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
-                            content: Text(
-                                'Adding ${file.uri.pathSegments.last} to TeDrive')),
+                          content: Text(
+                            'Adding ${file.uri.pathSegments.last} to TeDrive',
+                          ),
+                        ),
                       );
                     },
                     child: const Text('Add to drive'),
@@ -3320,7 +3365,11 @@ class _PhotoMapView extends StatelessWidget {
                     ),
                   ),
                 ),
-                title: Text(f.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                title: Text(
+                  f.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
                 subtitle: Text(
                   '${f.location!.lat.toStringAsFixed(4)}°, ${f.location!.lng.toStringAsFixed(4)}° · ${formatDate(f.date).split(',').first}',
                 ),
@@ -3356,8 +3405,7 @@ class PhotoMap extends StatelessWidget {
         if (f.location != null) LatLng(f.location!.lat, f.location!.lng),
     ];
     if (points.isEmpty) return const SizedBox.shrink();
-    final single = points.length == 1 ||
-        points.every((p) => p == points.first);
+    final single = points.length == 1 || points.every((p) => p == points.first);
     return FlutterMap(
       options: MapOptions(
         initialCenter: points.first,

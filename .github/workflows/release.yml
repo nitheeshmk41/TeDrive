@@ -375,7 +375,7 @@ jobs:
 
             | File | For |
             | :--- | :--- |
-            | `android-arm64.apk` | Most Android phones (recommended) |
+            | `android-arm64.apk` | Most Android phones (recommended). If a phone browser stops at 100%, use https://tedrive.vercel.app/download/TeDrive-android-arm64.apk |
             | `android-arm32.apk` | Older 32-bit Android phones |
             | `windows-x64.zip` | Windows 10 and 11. Unzip and run `TeDrive.exe`. |
             | `linux-x64.tar.gz` | Linux (Ubuntu 22.04 or newer and similar). Unpack and run `TeDrive/tedrive`. |
@@ -391,3 +391,15 @@ jobs:
             - **Setup** needs a free Telegram API ID and hash from [my.telegram.org](https://my.telegram.org), then your phone number. Sign in with the same number on every device to see the same files.
             - **Linux** needs GTK 3, OpenSSL 3 and a keyring service (GNOME Keyring or KWallet).
             - **Keep a second copy of anything irreplaceable.** Telegram is not a contracted storage service.
+      - name: Refresh the web app's direct APK downloads
+        # tedrive.vercel.app/download/ copies the APKs of the latest release
+        # when it builds. A Vercel deploy hook (secret VERCEL_DEPLOY_HOOK)
+        # rebuilds it now; without one it updates on the next push to main.
+        env:
+          HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "::notice::No VERCEL_DEPLOY_HOOK secret: tedrive.vercel.app/download updates on the next push to main."
+          else
+            curl -fsS -X POST "$HOOK"
+          fi

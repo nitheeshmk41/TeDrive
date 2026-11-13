@@ -17,18 +17,16 @@ Never share the hash with anyone, including in bug reports.
 
 ## Android
 
-1. On the phone, download `TeDrive-…-android-arm64.apk` (most phones). Use `android-arm32.apk` only for old 32-bit phones.
+1. On the phone, open **[tedrive.vercel.app/download/TeDrive-android-arm64.apk](https://tedrive.vercel.app/download/TeDrive-android-arm64.apk)** (most phones). Old 32-bit phones need [TeDrive-android-arm32.apk](https://tedrive.vercel.app/download/TeDrive-android-arm32.apk). These links always give the newest version.
 2. Open the downloaded file and tap **Install**. If Android asks, allow your browser or file manager to **install unknown apps**.
 3. Open TeDrive, paste the API ID and hash, enter your phone number and the code Telegram sends you.
 
 ### Download stuck at 100%
 
-Some browsers, Brave in particular, keep showing "Downloading…" at 100% while they scan the APK. The file is usually already complete.
+GitHub's download links redirect to a short-lived address, and some Android browsers (Brave, Firefox) then never finish the download. The links above download straight from tedrive.vercel.app and avoid this. If a download still hangs:
 
-- Open your **Files** (or **My Files**) app, go to **Downloads** and tap the `TeDrive-…apk` file.
-- Or tap the download notification in the status bar.
-- Or download it with Chrome instead.
-- If the file is not in Downloads, cancel and download again. The APK is about 42 MB.
+- Open your **Files** app → **Downloads** and tap the `TeDrive-…apk` file; it is often already complete.
+- Otherwise cancel it, remove it from the browser's download list, and try again (or use Chrome). The APK is about 42 MB.
 
 ### Updating
 
