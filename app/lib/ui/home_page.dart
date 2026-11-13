@@ -317,6 +317,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final path = await _fetchDecrypted(file, 'Preparing');
     if (path == null) return;
     final mime = mimeOf(file.name);
+    if (kIsWeb) return _webShareFiles([(path: path, name: file.name)]);
     if (!await device.shareFile(path, mime: mime, name: file.name)) {
       await SharePlus.instance.share(
         ShareParams(
@@ -325,6 +326,59 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       );
     }
   });
+
+  /// Browsers only allow sharing straight after a click, and a download
+  /// takes longer than that. So once the files are ready, one more tap
+  /// shares them; where the browser cannot share files, they are saved.
+  Future<void> _webShareFiles(List<({String path, String name})> files) async {
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(
+          files.length == 1 ? 'Ready to share' : '${files.length} files ready',
+        ),
+        content: Text(
+          files.length == 1 ? files.first.name : 'Share them or save them.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'save'),
+            child: const Text('Download'),
+          ),
+          FilledButton.icon(
+            icon: const Icon(Icons.share_outlined),
+            onPressed: () => Navigator.pop(ctx, 'share'),
+            label: const Text('Share'),
+          ),
+        ],
+      ),
+    );
+    if (choice == null) return;
+    void saveAll() {
+      for (final f in files) {
+        WebTd.save(f.path, safeFileName(f.name));
+      }
+    }
+
+    if (choice == 'save') return saveAll();
+    try {
+      final result = await SharePlus.instance.share(
+        ShareParams(
+          files: [
+            for (final f in files)
+              XFile(f.path, mimeType: mimeOf(f.name), name: f.name),
+          ],
+        ),
+      );
+      if (result.status == ShareResultStatus.unavailable) {
+        saveAll();
+        _toast('This browser cannot share files, so they were downloaded');
+      }
+    } catch (_) {
+      saveAll();
+      _toast('This browser cannot share files, so they were downloaded');
+    }
+  }
 
   /// Saves a copy of [file]. [folder] is asked for when not given.
   Future<void> _saveCopy(
@@ -411,6 +465,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _sharePublicLink(StoredFile original) async {
     final link = await _ensureShareLink(original);
     if (link == null) return;
+    if (kIsWeb) {
+      // The click has expired by now, so the browser would refuse to share.
+      await Clipboard.setData(ClipboardData(text: link));
+      _toast('Link copied. Paste it into any chat.');
+      return;
+    }
     await SharePlus.instance.share(
       ShareParams(
         text:
@@ -730,6 +790,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           XFile(f.localPath!, mimeType: mimeOf(f.name), name: f.name),
     ];
     if (paths.isEmpty) return;
+    if (kIsWeb) {
+      return _webShareFiles([
+        for (final p in paths) (path: p.path, name: p.name),
+      ]);
+    }
     await SharePlus.instance.share(ShareParams(files: paths));
   });
 
@@ -1279,8 +1344,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                 children: [
                                   if (!kIsWeb)
                                     IconButton(
-                                      tooltip:
-                                          'Wi-Fi transfer',
+                                      tooltip: 'Wi-Fi transfer',
                                       icon: const Icon(Icons.wifi_tethering),
                                       onPressed: _openWifiTransfer,
                                     ),

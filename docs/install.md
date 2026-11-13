@@ -21,12 +21,14 @@ Never share the hash with anyone, including in bug reports.
 2. Open the downloaded file and tap **Install**. If Android asks, allow your browser or file manager to **install unknown apps**.
 3. Open TeDrive, paste the API ID and hash, enter your phone number and the code Telegram sends you.
 
-### Download stuck at 100%
+### Download stuck at 100% (Brave and some other browsers)
 
-GitHub's download links redirect to a short-lived address, and some Android browsers (Brave, Firefox) then never finish the download. The links above download straight from tedrive.vercel.app and avoid this. If a download still hangs:
+Brave's Android download manager sometimes never finishes a download. The file on the server is fine; the browser is the problem. Any of these works:
 
-- Open your **Files** app → **Downloads** and tap the `TeDrive-…apk` file; it is often already complete.
-- Otherwise cancel it, remove it from the browser's download list, and try again (or use Chrome). The APK is about 42 MB.
+- **Use Chrome or Firefox** for the one-time download. After that, TeDrive updates itself (see below), so the browser is never needed again.
+- **Send it through Telegram:** on a computer, download the APK and send it to your own **Saved Messages** in Telegram. On the phone, open Saved Messages, tap the file, then tap it again to install.
+- If the project's Telegram channel is set up, the newest APK is posted there automatically. Tap it in the Telegram app to install.
+- If a download did get stuck, open your **Files** app → **Downloads**: the APK is sometimes already complete there.
 
 ### Updating
 

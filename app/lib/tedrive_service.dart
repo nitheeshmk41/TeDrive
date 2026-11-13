@@ -785,31 +785,85 @@ class TeDriveService {
       // TDLib remembers a copy that is gone. Make it forget, then download.
       await _deleteFile(fileId);
     }
-    final sub = td.updates.listen((u) {
-      if (u['@type'] != 'updateFile') return;
-      final f = u['file'] as Json;
-      if (f['id'] == fileId) {
-        onProgress?.call(
-          (f['local'] as Json)['downloaded_size'] as int,
-          fileSize(f),
-        );
-      }
-    });
-    try {
-      file = await td.request({
-        '@type': 'downloadFile',
-        'file_id': fileId,
-        'priority': priority,
-        'offset': 0,
-        'limit': 0,
-        'synchronous': true,
-      });
-    } finally {
-      await sub.cancel();
-    }
+    file = await _downloadAndWait(fileId, priority, onProgress);
     final path = _completePath(file);
     if (path == null) throw StateError('The download did not complete.');
     return path;
+  }
+
+  /// Starts a download and waits for TDLib to report it complete.
+  ///
+  /// TDLib's "synchronous" mode waits forever if a download never starts or
+  /// stalls, which left photos on "Loading full image…". Instead this
+  /// follows the progress updates, nudges a download that has gone quiet,
+  /// and gives up with an error the user can retry.
+  Future<Json> _downloadAndWait(
+    int fileId,
+    int priority,
+    Progress? onProgress,
+  ) async {
+    bool complete(Json f) =>
+        (f['local'] as Json)['is_downloading_completed'] == true;
+    final done = Completer<Json>();
+    var lastActivity = DateTime.now();
+    var started = false;
+    var nudges = 0;
+    final sub = td.updates.listen((u) {
+      if (u['@type'] != 'updateFile') return;
+      final f = u['file'] as Json;
+      if (f['id'] != fileId || done.isCompleted) return;
+      lastActivity = DateTime.now();
+      final local = f['local'] as Json;
+      onProgress?.call(local['downloaded_size'] as int, fileSize(f));
+      if (complete(f)) {
+        done.complete(f);
+      } else if (started &&
+          local['is_downloading_active'] == false &&
+          local['can_be_downloaded'] == true &&
+          nudges == 0) {
+        // Stopped without finishing: cancelled by the user.
+        done.completeError(const DownloadStopped());
+      }
+    });
+    Future<Json> request() => td.request({
+      '@type': 'downloadFile',
+      'file_id': fileId,
+      'priority': priority,
+      'offset': 0,
+      'limit': 0,
+      'synchronous': false,
+    });
+    final watchdog = Timer.periodic(const Duration(seconds: 5), (_) async {
+      if (done.isCompleted) return;
+      if (DateTime.now().difference(lastActivity) <
+          const Duration(seconds: 20)) {
+        return;
+      }
+      lastActivity = DateTime.now();
+      try {
+        final f = await td.request({'@type': 'getFile', 'file_id': fileId});
+        if (done.isCompleted) return;
+        if (complete(f)) return done.complete(f);
+        if (++nudges > 3) {
+          return done.completeError(
+            StateError(
+              'The download is not making progress. Check your connection '
+              'and try again.',
+            ),
+          );
+        }
+        await request();
+      } catch (_) {}
+    });
+    try {
+      final first = await request();
+      if (complete(first)) return first;
+      started = true;
+      return await done.future;
+    } finally {
+      watchdog.cancel();
+      await sub.cancel();
+    }
   }
 
   Future<String> _webDownload(
@@ -820,28 +874,7 @@ class TeDriveService {
   }) async {
     final known = _webUrls[fileId];
     if (known != null) return known;
-    final sub = td.updates.listen((u) {
-      if (u['@type'] != 'updateFile') return;
-      final f = u['file'] as Json;
-      if (f['id'] == fileId) {
-        onProgress?.call(
-          (f['local'] as Json)['downloaded_size'] as int,
-          fileSize(f),
-        );
-      }
-    });
-    try {
-      await td.request({
-        '@type': 'downloadFile',
-        'file_id': fileId,
-        'priority': priority,
-        'offset': 0,
-        'limit': 0,
-        'synchronous': true,
-      });
-    } finally {
-      await sub.cancel();
-    }
+    await _downloadAndWait(fileId, priority, onProgress);
     final url = await WebTd.fileUrl(fileId, mime: mime);
     if (url == null) throw StateError('The download did not complete.');
     return _webUrls[fileId] = url;
@@ -971,4 +1004,11 @@ class TeDriveService {
         ? path
         : null;
   }
+}
+
+/// A download that stopped before it finished, because it was cancelled.
+class DownloadStopped implements Exception {
+  const DownloadStopped();
+  @override
+  String toString() => 'The download was stopped.';
 }

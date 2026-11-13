@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.0.4
+
+- Fixed: full photos (and any download) could stay on "Loading…" forever, on the web and on phones. Downloads now follow Telegram's progress updates, restart a download that goes quiet, and show **Try again** if it still cannot finish.
+- Fixed: sharing a file in the web app did nothing, because browsers only allow sharing right after a click. Once the file is ready, a **Share** button appears, with **Download** as a fallback. Sharing a public link in the web app copies it.
+- Optional: each release can post the APK to a Telegram channel, for phones whose browser cannot download APKs (Brave).
+
 ## v2.0.3
 
 - Fixed: opening a photo or file could wait behind every thumbnail in the gallery and look stuck on "Loading full image…". Files you open now download first.

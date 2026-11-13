@@ -403,3 +403,20 @@ jobs:
           else
             curl -fsS -X POST "$HOOK"
           fi
+      - name: Post the Android app to a Telegram channel
+        # Optional. Some phone browsers (Brave) never finish APK downloads;
+        # installing from a Telegram channel avoids the browser entirely.
+        # Needs secrets TELEGRAM_BOT_TOKEN (from @BotFather) and
+        # TELEGRAM_CHAT_ID (the channel, with the bot added as an admin).
+        env:
+          BOT: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          if [ -z "$BOT" ] || [ -z "$CHAT" ]; then
+            echo "::notice::No TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID: APK not posted to Telegram."
+            exit 0
+          fi
+          apk=$(ls assets/*android-arm64.apk | head -1)
+          curl -fsS -F chat_id="$CHAT" -F document=@"$apk" \
+            -F caption="TeDrive ${GITHUB_REF_NAME} for Android. Tap to download, then open it to install." \
+            "https://api.telegram.org/bot${BOT}/sendDocument" > /dev/null

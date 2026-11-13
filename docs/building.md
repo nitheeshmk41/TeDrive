@@ -43,3 +43,10 @@ CI builds every platform and publishes the GitHub release. The in-app updater fi
 ### Android signing
 
 Release APKs must always be signed with the same key, or phones cannot update in place. CI reads it from these repository secrets: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`. Keep a backup of the keystore outside the repository; `signing/` is git-ignored.
+
+### Optional release extras
+
+| Secret | What it does |
+| :--- | :--- |
+| `VERCEL_DEPLOY_HOOK` | Rebuilds tedrive.vercel.app after a release, so its direct APK links serve the new version at once |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | Posts the arm64 APK to a Telegram channel on each release, for people whose browser cannot download APKs. Create the bot with @BotFather, add it to the channel as an admin, and use the channel's `@username` or numeric id as the chat id |
