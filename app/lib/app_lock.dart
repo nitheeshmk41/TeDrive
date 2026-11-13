@@ -8,7 +8,8 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:local_auth/local_auth.dart';
+import 'package:local_auth_android/local_auth_android.dart';
+import 'package:local_auth_platform_interface/local_auth_platform_interface.dart';
 
 class AppLockService {
   AppLockService._();
@@ -19,7 +20,9 @@ class AppLockService {
   static const _storage = FlutterSecureStorage();
 
   static const _bioKey = 'tedrive_app_lock_biometric';
-  final _auth = LocalAuthentication();
+  // Android and Apple only: the Windows plugin does not build with current
+  // Visual Studio, and Linux has none.
+  LocalAuthPlatform get _auth => LocalAuthPlatform.instance;
   bool _biometric = false;
   DateTime? _pausedAt;
 
@@ -65,7 +68,7 @@ class AppLockService {
   /// Whether this device can unlock with a fingerprint or face.
   Future<bool> canUseBiometric() async {
     try {
-      return await _auth.isDeviceSupported() && await _auth.canCheckBiometrics;
+      return await _auth.isDeviceSupported() && await _auth.deviceSupportsBiometrics();
     } catch (_) {
       return false;
     }
@@ -82,7 +85,8 @@ class AppLockService {
     try {
       final ok = await _auth.authenticate(
         localizedReason: 'Unlock TeDrive',
-        biometricOnly: true,
+        authMessages: const [AndroidAuthMessages()],
+        options: const AuthenticationOptions(biometricOnly: true),
       );
       if (ok) _isUnlocked = true;
       return ok;

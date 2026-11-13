@@ -1,5 +1,9 @@
 # Changelog
 
+## v2.0.1
+
+- Windows and macOS builds fixed (fingerprint unlock is now Android and Mac only; macOS builds with the current Xcode).
+
 ## v2.0.0
 
 ### Added
