@@ -856,13 +856,3 @@ List<StoredFile> vaultFiles(Iterable<StoredFile> files) => [
   for (final f in files)
     if (f.isVault && !f.inTrash) f,
 ];
-
-/// Where share links point: a small page on the TeDrive site that opens
-/// the Telegram app directly. Plain t.me links are blocked on some
-/// networks, so they are not handed out as they are.
-String friendlyShareLink(String tmeLink) {
-  final m = RegExp(r'^https://t\.me/([A-Za-z0-9_]+)/(\d+)$')
-      .firstMatch(tmeLink);
-  if (m == null) return tmeLink;
-  return 'https://tedrive.vercel.app/s/?c=${m.group(1)}&p=${m.group(2)}';
-}

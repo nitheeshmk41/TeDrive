@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:archive/archive_io.dart';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -21,6 +22,7 @@ import '../stored_file.dart';
 import '../local_files.dart';
 import '../td/web_bridge.dart';
 import '../tedrive_service.dart';
+import '../thumbnailer.dart';
 import '../vault_service.dart';
 import '../updater.dart';
 import '../wifi_transfer.dart';
@@ -408,82 +410,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (!quiet) _toast('Saved to ${target.path}');
   });
 
-  Future<String?> _ensureShareLink(StoredFile original) async {
-    var link = _latest(original).shareLink;
-    if (link != null) return link;
-    final go = await _confirm(
-      title: 'Create a public link?',
-      body:
-          'Anyone who has the link can see and download '
-          '${_latest(original).name}, without signing in.\n\n'
-          'TeDrive copies the file into a public channel called '
-          '"TeDrive Shared" in your Telegram. Your other files stay '
-          'private. You can stop sharing at any time.',
-      action: 'Create link',
-    );
-    if (!go || !mounted) return null;
-    var dialogOpen = true;
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const PopScope(
-        canPop: false,
-        child: AlertDialog(
-          content: Row(
-            children: [
-              SizedBox.square(
-                dimension: 24,
-                child: CircularProgressIndicator(strokeWidth: 3),
-              ),
-              SizedBox(width: 20),
-              Expanded(child: Text('Creating link…')),
-            ],
-          ),
-        ),
-      ),
-    ).then((_) => dialogOpen = false);
-    try {
-      link = await _drive.shareLink(original);
-      return link;
-    } catch (e) {
-      _toast(e is StateError ? e.message : 'Could not create the link: $e');
-      return null;
-    } finally {
-      if (dialogOpen && mounted) {
-        Navigator.of(context, rootNavigator: true).pop();
-      }
-    }
-  }
-
-  Future<void> _copyShareLink(StoredFile original) async {
-    final link = await _ensureShareLink(original);
-    if (link == null) return;
-    await Clipboard.setData(ClipboardData(text: friendlyShareLink(link)));
-    _toast('Link copied');
-  }
-
-  Future<void> _sharePublicLink(StoredFile original) async {
-    final link = await _ensureShareLink(original);
-    if (link == null) return;
-    if (kIsWeb) {
-      // The click has expired by now, so the browser would refuse to share.
-      await Clipboard.setData(ClipboardData(text: friendlyShareLink(link)));
-      _toast('Link copied. Paste it into any chat.');
-      return;
-    }
-    await SharePlus.instance.share(
-      ShareParams(
-        text: '${_latest(original).name}\n${friendlyShareLink(link)}',
-      ),
-    );
-  }
-
   void _shareMenu(StoredFile original) {
     final file = _latest(original);
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
       builder: (sheet) {
+        void run(void Function() action) {
+          Navigator.pop(sheet);
+          action();
+        }
+
         return SafeArea(
           child: SingleChildScrollView(
             child: Column(
@@ -496,59 +433,57 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  subtitle: Text(file.shareLink ?? formatBytes(file.size)),
+                  subtitle: Text(formatBytes(file.size)),
                 ),
                 const Divider(),
                 ListTile(
                   leading: const Icon(Icons.send_outlined),
                   title: const Text('Send the file'),
                   subtitle: Text(
-                    'To WhatsApp, email or any app (${formatBytes(file.size)}). '
-                    'Works for everyone.',
+                    'WhatsApp, email or any app · ${formatBytes(file.size)}',
                   ),
-                  onTap: () {
-                    Navigator.pop(sheet);
-                    _share(original);
-                  },
+                  onTap: () => run(() => _share(original)),
                 ),
-                const Divider(),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-                  child: Text(
-                    'Public link: opens a TeDrive page with a button '
-                    'that shows the file in Telegram.',
-                    style: Theme.of(context).textTheme.bodySmall,
+                if (device.isAndroid &&
+                    file.kind == FileKind.image &&
+                    !file.isVault)
+                  ListTile(
+                    leading: const Icon(Icons.photo_size_select_large),
+                    title: const Text('Send a smaller copy'),
+                    subtitle: const Text(
+                      'About 300 KB. Quicker to send, uses less data.',
+                    ),
+                    onTap: () => run(() => _shareSmall(original)),
                   ),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.link),
-                  title: const Text('Copy public link'),
-                  subtitle: const Text('Anyone with the link can download it'),
-                  onTap: () {
-                    Navigator.pop(sheet);
-                    _copyShareLink(original);
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.share_outlined),
-                  title: const Text('Share public link'),
-                  subtitle: const Text('Send the link instead of the file'),
-                  onTap: () {
-                    Navigator.pop(sheet);
-                    _sharePublicLink(original);
-                  },
-                ),
+                if (!file.isVault)
+                  ListTile(
+                    leading: const Icon(Icons.forward_to_inbox_outlined),
+                    title: const Text('Send to a Telegram chat'),
+                    subtitle: const Text(
+                      'Forwarded inside Telegram: no download, no data used',
+                    ),
+                    onTap: () => run(() => _forwardToChat([original])),
+                  ),
+                if (!kIsWeb)
+                  ListTile(
+                    leading: const Icon(Icons.wifi_tethering),
+                    title: const Text('Wi-Fi transfer'),
+                    subtitle: const Text(
+                      'To a laptop or phone on the same Wi-Fi',
+                    ),
+                    onTap: () => run(_openWifiTransfer),
+                  ),
                 if (file.shareLink != null)
                   ListTile(
                     leading: const Icon(
                       Icons.link_off,
                       color: Colors.redAccent,
                     ),
-                    title: const Text('Manage or stop sharing link'),
-                    onTap: () {
-                      Navigator.pop(sheet);
-                      _shareLink(original);
-                    },
+                    title: const Text('Remove old public link'),
+                    subtitle: const Text(
+                      'This file still has a link made by an older version',
+                    ),
+                    onTap: () => run(() => _stopOldLink(original)),
                   ),
               ],
             ),
@@ -558,26 +493,129 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     );
   }
 
-  /// Creates (after a warning) or shows the public link of a file.
-  Future<void> _shareLink(StoredFile original) async {
-    final link = await _ensureShareLink(original);
-    if (link == null || !mounted) return;
-    await showDialog<void>(
-      context: context,
-      builder: (_) => _ShareLinkDialog(
-        name: _latest(original).name,
-        link: link,
-        onCopy: () {
-          Clipboard.setData(ClipboardData(text: link));
-          _toast('Link copied');
-        },
-        onSend: () => SharePlus.instance.share(ShareParams(text: link)),
-        onStop: () => _guard(() async {
-          await _drive.stopSharing(original);
-          _toast('Link removed. It no longer works.');
-        }),
-      ),
+  /// Public links are no longer made. This deletes one left by an older
+  /// version, so nobody can open the file with it any more.
+  Future<void> _stopOldLink(StoredFile original) => _guard(() async {
+    await _drive.stopSharing(original);
+    _toast('Link removed. It no longer works.');
+  });
+
+  /// Sends a reduced JPEG (longest side 1600 px) instead of the original.
+  Future<void> _shareSmall(StoredFile file) => _guard(() async {
+    final path = await _fetch(file, 'Preparing');
+    if (path == null) return;
+    final tmp = await getTemporaryDirectory();
+    final dot = file.name.lastIndexOf('.');
+    final base = dot > 0 ? file.name.substring(0, dot) : file.name;
+    final name = '${safeFileName(base)}-small.jpg';
+    final small = await createSmallCopy(
+      source: path,
+      target: '${tmp.path}/$name',
     );
+    if (small == null) {
+      _toast('Could not make a smaller copy of this photo');
+      return;
+    }
+    if (!await device.shareFile(small, mime: 'image/jpeg', name: name)) {
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(small, mimeType: 'image/jpeg', name: name)],
+        ),
+      );
+    }
+  });
+
+  /// Lets the user pick a Telegram chat and forwards the files there.
+  Future<void> _forwardToChat(List<StoredFile> originals) async {
+    final files = [
+      for (final f in originals.map(_latest))
+        if (!f.isVault) f,
+    ];
+    if (files.isEmpty) {
+      _toast('Vault files are encrypted and cannot be forwarded');
+      return;
+    }
+    final chat = await showDialog<TelegramChat>(
+      context: context,
+      builder: (_) => _ChatPickerDialog(service: widget.service),
+    );
+    if (chat == null) return;
+    await _guard(() async {
+      await _drive.forwardTo(chat.id, files);
+      _toast(
+        files.length == 1
+            ? 'Sent ${files.first.name} to ${chat.title}'
+            : 'Sent ${files.length} files to ${chat.title}',
+      );
+    });
+  }
+
+  /// Packs every file of a folder into one .zip and sends or saves it.
+  Future<void> _zipAndSend(String folder) async {
+    final files = [
+      for (final f in filterFiles(_drive.files, folder: folder))
+        if (!f.isVault) f,
+    ];
+    if (files.isEmpty) {
+      _toast('This folder has no files to zip');
+      return;
+    }
+    final total = files.fold<int>(0, (sum, f) => sum + f.size);
+    final go = await _confirm(
+      title: 'Zip ${files.length} files?',
+      body:
+          'All files of "${folderBaseName(folder)}" (${formatBytes(total)}) '
+          'are downloaded to this device and packed into one .zip file.',
+      action: 'Zip',
+    );
+    if (!go || !mounted) return;
+    if (!await _fetchAll(files, 'Downloading')) return;
+    await _guard(() async {
+      final tmp = await getTemporaryDirectory();
+      final zipName = '${safeFileName(folderBaseName(folder))}.zip';
+      final zipPath = '${tmp.path}/$zipName';
+      final old = File(zipPath);
+      if (old.existsSync()) old.deleteSync();
+      final encoder = ZipFileEncoder()..create(zipPath);
+      final used = <String>{};
+      var packed = 0;
+      for (final f in files.map(_latest)) {
+        if (!localExists(f.localPath)) continue;
+        // Two files may share a name: number the later ones.
+        var name = safeFileName(f.name);
+        for (var n = 2; !used.add(name.toLowerCase()); n++) {
+          name = '($n) ${safeFileName(f.name)}';
+        }
+        // Photos and videos are already compressed: store them as they are.
+        await encoder.addFile(File(f.localPath!), name, ZipFileEncoder.store);
+        packed++;
+      }
+      await encoder.close();
+      if (packed == 0) {
+        _toast('No file could be downloaded');
+        return;
+      }
+      if (device.isDesktop) {
+        final dir = await FilePicker.getDirectoryPath(
+          dialogTitle: 'Save $zipName to…',
+        );
+        if (dir == null) return;
+        await File(zipPath).copy('$dir${Platform.pathSeparator}$zipName');
+        _toast('Saved $zipName to $dir');
+        return;
+      }
+      if (!await device.shareFile(
+        zipPath,
+        mime: 'application/zip',
+        name: zipName,
+      )) {
+        await SharePlus.instance.share(
+          ShareParams(
+            files: [XFile(zipPath, mimeType: 'application/zip', name: zipName)],
+          ),
+        );
+      }
+    });
   }
 
   Future<void> _rename(StoredFile file) async {
@@ -864,11 +902,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             tooltip: 'More',
             onSelected: (v) => switch (v) {
               'move' => _bulk(_bulkMove),
+              'forward' => _bulk(_forwardToChat),
               'download' => _bulk(_bulkDownload),
               _ => _bulk(_trashFiles),
             },
             itemBuilder: (_) => [
               const PopupMenuItem(value: 'move', child: Text('Move to album')),
+              const PopupMenuItem(
+                value: 'forward',
+                child: Text('Send to a Telegram chat'),
+              ),
               if (kIsWeb || device.isDesktop)
                 const PopupMenuItem(value: 'download', child: Text('Download')),
               const PopupMenuItem(value: 'trash', child: Text('Move to trash')),
@@ -1026,20 +1069,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 ListTile(
                   leading: const Icon(Icons.share_outlined),
                   title: const Text('Share or send'),
-                  subtitle: const Text('Copy link, share link, or send file'),
+                  subtitle: const Text(
+                    'To any app, a Telegram chat or over Wi-Fi',
+                  ),
                   onTap: () => run(_shareMenu),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.copy_rounded),
-                  title: const Text('Copy link'),
-                  subtitle: file.shareLink == null
-                      ? const Text('Share instantly via link')
-                      : Text(
-                          file.shareLink!,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                  onTap: () => run(_copyShareLink),
                 ),
                 if (device.isDesktop || kIsWeb)
                   ListTile(
@@ -1412,17 +1445,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         },
       ),
     );
-  }
-
-  Future<void> _shareAlbum(String name) async {
-    final link = await _drive.shareAlbum(name);
-    if (!mounted) return;
-    if (link != null) {
-      await Clipboard.setData(ClipboardData(text: link));
-      _toast('Album share link copied: $link');
-    } else {
-      _toast('Album is empty or link could not be generated');
-    }
   }
 
   Future<void> _createSubfolder(String parent) async {
@@ -1805,11 +1827,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             ],
           ),
           actions: [
-            IconButton(
-              tooltip: 'Share album link',
-              icon: const Icon(Icons.share_outlined),
-              onPressed: () => _shareAlbum(name),
-            ),
+            if (!kIsWeb)
+              IconButton(
+                tooltip: 'Zip this folder and send it',
+                icon: const Icon(Icons.folder_zip_outlined),
+                onPressed: () => _zipAndSend(name),
+              ),
             IconButton(
               tooltip: 'New subfolder',
               icon: const Icon(Icons.create_new_folder_outlined),
@@ -2870,91 +2893,6 @@ class _RenameDialogState extends State<_RenameDialog> {
 }
 
 /// A file's public link, with copy, send and stop-sharing actions.
-class _ShareLinkDialog extends StatelessWidget {
-  const _ShareLinkDialog({
-    required this.name,
-    required this.link,
-    required this.onCopy,
-    required this.onSend,
-    required this.onStop,
-  });
-
-  final String name;
-  final String link;
-  final VoidCallback onCopy;
-  final VoidCallback onSend;
-  final VoidCallback onStop;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    void close(VoidCallback action) {
-      Navigator.pop(context);
-      action();
-    }
-
-    return AlertDialog(
-      title: const Text('Share link'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            'Anyone with this link can see and download $name.',
-            style: theme.textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: SelectableText(
-              link,
-              style: theme.textTheme.bodyLarge?.copyWith(
-                color: theme.colorScheme.primary,
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton.icon(
-                  style: FilledButton.styleFrom(minimumSize: const Size(0, 48)),
-                  onPressed: () => close(onCopy),
-                  icon: const Icon(Icons.copy),
-                  label: const Text('Copy'),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () => close(onSend),
-                  icon: const Icon(Icons.send_outlined),
-                  label: const Text('Send'),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          style: TextButton.styleFrom(foregroundColor: theme.colorScheme.error),
-          onPressed: () => close(onStop),
-          child: const Text('Stop sharing'),
-        ),
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Done'),
-        ),
-      ],
-    );
-  }
-}
-
 class _ViewBar extends StatelessWidget {
   const _ViewBar({
     required this.selected,
@@ -3621,6 +3559,116 @@ class PhotoMap extends StatelessWidget {
         ),
         const SimpleAttributionWidget(
           source: Text('OpenStreetMap contributors'),
+        ),
+      ],
+    );
+  }
+}
+
+/// Lists the user's Telegram chats, with a search box, to pick one.
+class _ChatPickerDialog extends StatefulWidget {
+  const _ChatPickerDialog({required this.service});
+  final TeDriveService service;
+
+  @override
+  State<_ChatPickerDialog> createState() => _ChatPickerDialogState();
+}
+
+class _ChatPickerDialogState extends State<_ChatPickerDialog> {
+  List<TelegramChat>? _chats;
+  String? _error;
+  Timer? _debounce;
+  int _request = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _load('');
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _load(String query) async {
+    final mine = ++_request;
+    try {
+      final chats = await widget.service.chatsToSendTo(query);
+      if (mounted && mine == _request) {
+        setState(() {
+          _chats = chats;
+          _error = null;
+        });
+      }
+    } catch (e) {
+      if (mounted && mine == _request) setState(() => _error = '$e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final chats = _chats;
+    return AlertDialog(
+      title: const Text('Send to a Telegram chat'),
+      contentPadding: const EdgeInsets.fromLTRB(0, 12, 0, 0),
+      content: SizedBox(
+        width: 380,
+        height: 420,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: TextField(
+                autofocus: !device.isAndroid,
+                decoration: const InputDecoration(
+                  prefixIcon: Icon(Icons.search),
+                  hintText: 'Search chats',
+                ),
+                onChanged: (q) {
+                  _debounce?.cancel();
+                  _debounce = Timer(
+                    const Duration(milliseconds: 300),
+                    () => _load(q),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: _error != null
+                  ? Center(child: Text(_error!))
+                  : chats == null
+                  ? const Center(child: CircularProgressIndicator())
+                  : chats.isEmpty
+                  ? const Center(child: Text('No chats found'))
+                  : ListView.builder(
+                      itemCount: chats.length,
+                      itemBuilder: (context, i) => ListTile(
+                        leading: CircleAvatar(
+                          child: Text(
+                            chats[i].title.isEmpty
+                                ? '?'
+                                : chats[i].title.characters.first.toUpperCase(),
+                          ),
+                        ),
+                        title: Text(
+                          chats[i].title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        onTap: () => Navigator.pop(context, chats[i]),
+                      ),
+                    ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
         ),
       ],
     );

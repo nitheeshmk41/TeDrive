@@ -7,7 +7,7 @@ TeDrive is a Flutter app that uses the user's own Telegram account (via TDLib) a
 | Path | What |
 | :--- | :--- |
 | `app/lib/td/` | TDLib client: FFI on Android/desktop, tdweb (WebAssembly) bridge on web |
-| `app/lib/tedrive_service.dart` | Sign-in, channels, upload, download, share links |
+| `app/lib/tedrive_service.dart` | Sign-in, channels, upload, download, forwarding to chats |
 | `app/lib/drive_controller.dart` | App state, upload queue (persisted), downloads |
 | `app/lib/backup_controller.dart`, `backup_plan.dart` | Android phone backup |
 | `app/lib/stored_file.dart` | File model; caption metadata parse/serialise |

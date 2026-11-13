@@ -1,5 +1,16 @@
 # Changelog
 
+## v3.0.0
+
+### Changed
+- **Public share links are gone.** They opened on t.me, which many networks block. Files that still have a link from an older version show **Remove old public link**.
+
+### Added
+- **Send to a Telegram chat:** pick a chat and the file is forwarded inside Telegram, with no download and no data used. Works for many selected files at once.
+- **Send a smaller copy** of a photo (about 300 KB) on Android.
+- **Zip a folder and send it** as one file (phone and desktop).
+- **Wi-Fi transfer** is now in the share menu.
+
 ## v2.0.5
 
 - Photo viewer: opening a photo shows its preview at once and downloads nothing. **Load original** fetches the full-quality file only when you ask.

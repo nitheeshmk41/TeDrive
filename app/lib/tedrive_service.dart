@@ -527,87 +527,55 @@ class TeDriveService {
     return old == null || old.isEmpty ? null : old;
   }
 
-  /// Makes a public link for [file] and records it in the file's caption.
-  /// Uses instant server-side copy via Telegram (zero network bandwidth),
-  /// falling back to a direct media upload if needed.
-  Future<String> createShareLink(
-    int storageChatId,
-    StoredFile file, {
-    String? localCopy,
-    Progress? onProgress,
-  }) async {
-    final share = await _ensureShareChannel();
-    int? blobId;
-    try {
-      // The public copy carries only the file name: never the private
-      // caption (album, device name, fingerprint).
-      final caption = {'@type': 'formattedText', 'text': file.name};
-      final Json asDocument = {
-        '@type': 'inputMessageDocument',
-        // Reuses the copy already in Telegram, so nothing is uploaded.
-        'document': await _remoteInputFile(file),
-        'caption': caption,
-      };
-      Json? asMedia;
-      if (localCopy != null &&
-          (file.kind == FileKind.image || file.kind == FileKind.video)) {
-        // A copy is already on this device: send it as a real photo or
-        // video, which the link then shows directly in a browser.
-        final Json input;
-        if (kIsWeb) {
-          blobId = await WebTd.putBlob(localCopy);
-          input = {
-            '@type': 'inputFileBlob',
-            'name': file.name,
-            'blob_id': blobId,
-          };
-        } else {
-          input = {'@type': 'inputFileLocal', 'path': localCopy};
-        }
-        asMedia = file.kind == FileKind.image
-            ? {'@type': 'inputMessagePhoto', 'photo': input, 'caption': caption}
-            : {
-                '@type': 'inputMessageVideo',
-                'video': input,
-                'supports_streaming': true,
-                'caption': caption,
-              };
-      }
-      // Wait for Telegram to store the post: only then does it have the
-      // permanent number that the link is made from.
-      Json sent;
+  /// Chats the user can send to: recent ones, or those matching [query].
+  Future<List<TelegramChat>> chatsToSendTo(String query) async {
+    final q = query.trim();
+    final found = await td.request(
+      q.isEmpty
+          ? {
+              '@type': 'getChats',
+              'chat_list': {'@type': 'chatListMain'},
+              'limit': 60,
+            }
+          : {'@type': 'searchChats', 'query': q, 'limit': 40},
+    );
+    final chats = <TelegramChat>[];
+    for (final id in (found['chat_ids'] as List).cast<int>()) {
       try {
-        sent = await _sendAndWait(
-          share.chatId,
-          asMedia ?? asDocument,
-          onProgress: onProgress,
-        );
-      } on TdError {
-        // Telegram refuses some photos (too large, unusual format).
-        if (asMedia == null) rethrow;
-        sent = await _sendAndWait(share.chatId, asDocument);
-      }
-      final postId = (sent['id'] as int) >> 20;
-      if (postId <= 0) throw StateError('Telegram did not confirm the post.');
-
-      final link = 'https://t.me/${share.username}/$postId';
-      await _setCaption(
-        storageChatId,
-        file.messageId,
-        file.withShareLink(link).caption,
-      );
-      return link;
-    } finally {
-      if (blobId != null) WebTd.releaseBlob(blobId);
+        final chat = await td.request({'@type': 'getChat', 'chat_id': id});
+        final title = chat['title'] as String? ?? '';
+        // TeDrive's own channels are not places to send to.
+        if (title == storageChannelTitle || title == shareChannelTitle) {
+          continue;
+        }
+        chats.add((id: id, title: title.isEmpty ? 'Saved Messages' : title));
+      } catch (_) {}
     }
+    return chats;
   }
 
-  /// The file already in Telegram, so it can be sent again without upload.
-  Future<Json> _remoteInputFile(StoredFile file) async {
-    final f = await td.request({'@type': 'getFile', 'file_id': file.fileId});
-    final remoteId = (f['remote'] as Json?)?['id'] as String? ?? '';
-    if (remoteId.isEmpty) throw StateError('That file is not in Telegram yet.');
-    return {'@type': 'inputFileRemote', 'id': remoteId};
+  /// Sends copies of messages from the storage channel to [toChatId].
+  /// The private caption (fingerprint, folder, device) is left out, and
+  /// the copy does not say where it was forwarded from.
+  Future<void> forwardFiles(
+    int storageChatId,
+    int toChatId,
+    List<int> messageIds,
+  ) async {
+    // Telegram takes at most 100 messages per request.
+    for (var i = 0; i < messageIds.length; i += 100) {
+      final end = i + 100 < messageIds.length ? i + 100 : messageIds.length;
+      await td.request({
+        '@type': 'forwardMessages',
+        'chat_id': toChatId,
+        'message_thread_id': 0,
+        'from_chat_id': storageChatId,
+        'message_ids': messageIds.sublist(i, end),
+        'send_copy': true,
+        'remove_caption': true,
+        'only_preview': false,
+      });
+    }
   }
 
   /// Deletes the public copy and removes the link from the caption.
@@ -1012,3 +980,6 @@ class DownloadStopped implements Exception {
   @override
   String toString() => 'The download was stopped.';
 }
+
+/// A Telegram chat the user can send files to.
+typedef TelegramChat = ({int id, String title});

@@ -27,10 +27,15 @@ Everything you add is a message in a private channel called **TeDrive Storage** 
 
 ## Sharing
 
-- **Send the file** shares the file itself to WhatsApp, email or any app. It works for everyone.
-- **Copy / Share public link** copies the file into a public channel, **TeDrive Shared**, and gives a `t.me` link anyone can open without an account. Some networks block the t.me website; the link still opens when pasted into the Telegram app.
-- **Stop sharing** deletes the public copy, so the link stops working.
-- **Share album** makes one link for a whole folder.
+Open a file's **Share** menu:
+
+- **Send the file** shares the file itself to WhatsApp, email or any app.
+- **Send a smaller copy** (photos, Android) sends a reduced copy of about 300 KB.
+- **Send to a Telegram chat** forwards the file to a chat you pick. Telegram copies it on its own servers, so nothing is downloaded and no data is used. Select several files to forward them together.
+- **Wi-Fi transfer** moves files to a laptop or phone on the same Wi-Fi.
+- In a folder, the **zip** button packs the whole folder into one .zip file to send or save.
+
+TeDrive no longer makes public links. A file that still has one from an older version shows **Remove old public link**.
 
 ## Vault
 

@@ -11,13 +11,13 @@ Flutter UI (app/lib/ui)
       │
 DriveController / BackupController        state, upload queue, live updates
       │
-TeDriveService                            sign-in, channels, upload, download, share links
+TeDriveService                            sign-in, channels, upload, download, forwarding
       │
 TdClient ──► TDLib                        FFI (Android, Windows, Linux, macOS)
                                           tdweb / WebAssembly (browser)
       │
 Telegram ──► "TeDrive Storage" (private channel)   one message per file
-             "TeDrive Shared"  (public channel)    copies of files the user shared
+             "TeDrive Shared"  (public channel)    only from versions before 3.0, which made public links
 ```
 
 Android-only native code (`app/android/app/src/main/kotlin`): media library access, the foreground service that keeps uploads alive, the documents provider for the system file picker, the share receiver, and sharing out.
@@ -52,7 +52,7 @@ Reading the channel history rebuilds the whole drive on any device. Changes made
 | Metadata in captions | The drive is self-describing and recoverable with no extra store |
 | Each user brings their own API ID | Telegram's terms for third-party clients; no shared secret in the app |
 | TDLib pinned to one version on all platforms | Identical behaviour everywhere |
-| Share links via a separate public channel | The storage channel never becomes public |
+| No public links (removed in 3.0) | t.me is blocked on many networks; files are sent directly or forwarded inside Telegram |
 | Uploads from backup read the original in place | No second copy on a full phone; TeDrive never deletes outside its own cache |
 
 ## Limits that follow from the design

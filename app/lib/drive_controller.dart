@@ -336,22 +336,6 @@ class DriveController extends ChangeNotifier {
     PersistedUploadQueue.instance.save(items).catchError((_) {});
   }
 
-  /// Shares all files in an album using a shared album link.
-  Future<String?> shareAlbum(String albumName) async {
-    final inAlbum = filterFiles(files, folder: albumName);
-    if (inAlbum.isEmpty) return null;
-    final first = inAlbum.first;
-    final link = await shareLink(first);
-    for (final f in inAlbum) {
-      if (f.albumShareLink != link) {
-        final updated = f.withAlbumShare(link);
-        await _service.setCaption(_chatId!, updated.messageId, updated.caption);
-        _replace(updated);
-      }
-    }
-    return link;
-  }
-
   // ---- Star, trash and bulk actions ----
 
   /// Rewrites each file's caption with [change]. Stops at the first error
@@ -936,21 +920,10 @@ class DriveController extends ChangeNotifier {
     return ok;
   }
 
-  /// Permanently deletes the file from Telegram and from this phone's cache.
-  /// Creates a public link for [file] (or returns the existing one).
-  Future<String> shareLink(StoredFile file) async {
-    final current = _current(file);
-    final existing = current.shareLink;
-    if (existing != null) return existing;
-    final link = await _service.createShareLink(
-      _chatId!,
-      _current(file),
-      // Only a copy that is really on this device can be re-sent as media.
-      localCopy: localExists(current.localPath) ? current.localPath : null,
-    );
-    _replace(_current(file).withShareLink(link));
-    return link;
-  }
+  /// Forwards [files] to another Telegram chat. Telegram copies them on
+  /// its own servers, so nothing is downloaded or uploaded here.
+  Future<void> forwardTo(int chatId, List<StoredFile> files) => _service
+      .forwardFiles(_chatId!, chatId, [for (final f in files) f.messageId]);
 
   /// Deletes the public copy, so the link stops working.
   Future<void> stopSharing(StoredFile file) async {

@@ -29,7 +29,7 @@ Phones fill up, and cloud plans charge every month. Telegram already stores file
 | 📸 **Photo library** | Day-by-day timeline, "On this day" memories, a map of where photos were taken, EXIF details |
 | 📁 **Drive** | Nested folders, multi-select, starred, recent, large files, duplicates, Trash with 30-day restore |
 | 🔄 **Phone backup** | Background backup of chosen albums (Wi-Fi or charging only), then **Free up space** safely |
-| 🔗 **Sharing** | Public links for a file or a whole album, without re-uploading |
+| 📤 **Sharing** | Send files to any app, forward to a Telegram chat with no data used, send a smaller photo, or zip a whole folder |
 | 🔐 **Vault** | Documents encrypted on your device before upload; even Telegram cannot read them |
 | 🔒 **App lock** | PIN or fingerprint |
 | 📶 **Wi-Fi transfer** | Phone to laptop over local Wi-Fi with a QR code |
@@ -63,7 +63,6 @@ Android · Windows · macOS · Linux · Web
           TDLib (Telegram's official library)
                 │
 Telegram ──► "TeDrive Storage"  private channel, one message per file
-         └─► "TeDrive Shared"   public copies of files you share
 ```
 
 File details (fingerprint, folder, date, location) are kept in each message's caption, so the whole drive rebuilds itself on any device. More in [docs/architecture.md](docs/architecture.md).
