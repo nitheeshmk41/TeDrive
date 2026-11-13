@@ -6,7 +6,7 @@
 - Fixed: a download could reach 100% and never finish, because the app waited for a completion notice Telegram did not always send. It now checks the file on disk.
 - **Open in Telegram** works in the web app (through Telegram Web).
 - The app suggests an app lock once, if none is set.
-- Release builds now refuse to be published unsigned. Unsigned builds were why updates could not install over an older version.
+- Known issue: release APKs are still signed with a throwaway key, so they cannot update an installed TeDrive. Uninstall the old version first. This ends once the signing secrets are added (docs/building.md).
 
 ## v3.1.0
 
