@@ -441,7 +441,6 @@ class _ExportPageState extends State<ExportPage> {
               ButtonSegment(value: _gb ~/ 2, label: Text('500 MB')),
               ButtonSegment(value: _gb, label: Text('1 GB')),
               ButtonSegment(value: 2 * _gb, label: Text('2 GB')),
-              ButtonSegment(value: 4 * _gb, label: Text('4 GB')),
             ],
             selected: {_partBytes},
             onSelectionChanged: (s) => setState(() => _partBytes = s.first),

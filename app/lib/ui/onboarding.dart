@@ -555,9 +555,75 @@ class _SignInPageState extends State<SignInPage> {
     super.dispose();
   }
 
+  /// Shows the full number and asks before Telegram sends a login code to
+  /// it, so a typing mistake does not send the code to a stranger.
+  Future<bool> _confirmNumber(String typed) async {
+    final full = fullPhoneNumber(_country, typed);
+    final digits = full.length - 1;
+    if (digits < 7 || digits > 15) {
+      setState(
+        () => _error =
+            'That does not look like a complete phone number. Check the '
+            'country and the digits.',
+      );
+      return false;
+    }
+    // "+91 9876543210" when the number belongs to the chosen country.
+    final prefix = '+${_country.code}';
+    final shown = full.startsWith(prefix)
+        ? '$prefix ${full.substring(prefix.length)}'
+        : full;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        return AlertDialog(
+          icon: const Icon(Icons.phone_iphone),
+          title: const Text('Is this your number?'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                shown,
+                textAlign: TextAlign.center,
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.5,
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Telegram will send a login code to this number. If you '
+                'already use Telegram, the code arrives as a message in '
+                'your Telegram app.',
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+          actionsAlignment: MainAxisAlignment.spaceBetween,
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Edit number'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Yes, send code'),
+            ),
+          ],
+        );
+      },
+    );
+    return ok == true;
+  }
+
   Future<void> _submit() async {
     final value = _input.text.trim();
     if (value.isEmpty || _busy) return;
+    if (widget.state == 'waitPhoneNumber' && !await _confirmNumber(value)) {
+      return;
+    }
+    if (!mounted) return;
     setState(() {
       _busy = true;
       _error = null;

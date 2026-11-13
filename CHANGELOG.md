@@ -1,5 +1,31 @@
 # Changelog
 
+## v3.3.1 (long-term support)
+
+### Updating
+- **"App not installed as package conflicts with an existing package"**: earlier releases were each signed with a different throwaway key, so Android refused to install one over another. TeDrive now checks the new version's key before installing. If it differs, it saves the new APK to Downloads/TeDrive and walks you through the one-time uninstall and reinstall (your files stay in Telegram). Releases signed with the permanent key update in place from then on.
+
+### Sign-in
+- Before Telegram sends a login code, TeDrive shows the full number with its country code and asks **Is this your number?**, with **Edit number** and **Yes, send code**. Incomplete numbers are caught before anything is sent.
+
+### Widgets
+- Three home-screen widgets instead of one: **Backup** (status, progress bar, size backed up, Back up button), **Storage** (how many GB and files are backed up, photos and videos) and **Overview** (size, files, waiting, status and Back up now).
+
+### Search and smart albums
+- Search understands several words in any order and looks at names, albums, file type ("videos", "pdf"), year and month ("november 2026"), device, camera, starred, and what is in each photo.
+- Photos are also checked for faces. Albums now starts with **Found in your photos**: People, Selfies & portraits, Groups, Text & documents, and the most common things (Food, Sky, Pets…). Faces are counted on the phone, not identified: TeDrive does not yet group photos by who is in them.
+
+### Security
+- Wi-Fi transfer: the 6-digit access code can no longer be guessed by trying them all. After 20 wrong codes nothing is served until transfer is restarted with a new code.
+- App lock: after 5 wrong PINs the keypad pauses (30 seconds, then longer, up to 15 minutes), and restarting the app does not reset it.
+- App lock: with a PIN set, other apps can no longer browse the drive through Android's file picker.
+- Vault: new files derive their key with 30 times more work per passphrase guess. Existing vault files still open.
+- Vault: decrypted copies left in the cache by an earlier session are removed at start.
+- Sharing into TeDrive: another app can no longer point TeDrive at its own private files.
+
+### Housekeeping
+- Removed an unused 500 KB image and the 4 GB export part size (zip files that large are unreliable). Docs and the privacy policy describe the on-device photo analysis.
+
 ## v3.3.0
 
 - **Export everything** (Account → Export everything): downloads the whole drive and saves it as .zip parts (500 MB to 4 GB each) in Downloads/TeDrive Export, with folders kept. Each part's downloads are cleared before the next starts, so it fits on a nearly full phone. Vault files are not included.

@@ -6,16 +6,12 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
-import android.appwidget.AppWidgetManager
-import android.appwidget.AppWidgetProvider
 import android.content.BroadcastReceiver
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.MediaStore
-import android.widget.RemoteViews
 import java.util.Calendar
 
 /**
@@ -167,40 +163,5 @@ class BackupAlarmReceiver : BroadcastReceiver() {
                 pending.finish()
             }
         }.start()
-    }
-}
-
-/** The home-screen widget: backup status and a "Back up" button. */
-class BackupWidget : AppWidgetProvider() {
-    override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
-        render(context, manager, ids)
-    }
-
-    companion object {
-        private const val PREFS = "tedrive_widget"
-
-        fun save(context: Context, status: String, detail: String) {
-            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-                .putString("status", status)
-                .putString("detail", detail)
-                .apply()
-            val manager = AppWidgetManager.getInstance(context)
-            val ids = manager.getAppWidgetIds(ComponentName(context, BackupWidget::class.java))
-            if (ids.isNotEmpty()) render(context, manager, ids)
-        }
-
-        private fun render(context: Context, manager: AppWidgetManager, ids: IntArray) {
-            val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            val views = RemoteViews(context.packageName, R.layout.backup_widget).apply {
-                setTextViewText(R.id.widget_status, prefs.getString("status", null) ?: "Open TeDrive to start")
-                setTextViewText(R.id.widget_detail, prefs.getString("detail", null) ?: "Backup status shows here")
-                setOnClickPendingIntent(R.id.widget_root, BackupSchedule.openAppIntent(context, null, 5103))
-                setOnClickPendingIntent(
-                    R.id.widget_button,
-                    BackupSchedule.openAppIntent(context, BackupSchedule.ACTION_BACKUP, 5104),
-                )
-            }
-            manager.updateAppWidget(ids, views)
-        }
     }
 }

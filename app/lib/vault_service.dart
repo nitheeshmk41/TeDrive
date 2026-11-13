@@ -7,6 +7,7 @@
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -37,15 +38,25 @@ enum VaultDocType {
 }
 
 class VaultCipher {
-  static const String magic = 'TEDVAULT1'; // 9 bytes header
+  /// Header of files written now. The older "TEDVAULT1" files (weaker key
+  /// derivation) can still be opened.
+  static const String magic = 'TEDVAULT2'; // 9 bytes header
+  static const String _magicV1 = 'TEDVAULT1';
   static const int saltLength = 16;
   static const int ivLength = 16;
   static const int macLength = 32;
-  static const int pbkdf2Iterations = 2000;
+
+  /// Work needed to try one passphrase guess. v1 files used 2,000.
+  static const int pbkdf2Iterations = 60000;
+  static const int _pbkdf2IterationsV1 = 2000;
 
   /// Derives a 64-byte key material (32 bytes cipher key + 32 bytes mac key)
   /// using PBKDF2-HMAC-SHA256.
-  static Uint8List deriveKeys(String passphrase, Uint8List salt) {
+  static Uint8List deriveKeys(
+    String passphrase,
+    Uint8List salt, {
+    int iterations = pbkdf2Iterations,
+  }) {
     final passBytes = utf8.encode(passphrase);
     var hmac = Hmac(sha256, passBytes);
 
@@ -56,7 +67,7 @@ class VaultCipher {
 
     var u = Uint8List.fromList(hmac.convert(block1Input).bytes);
     final keyPart1 = Uint8List.fromList(u);
-    for (var i = 1; i < pbkdf2Iterations; i++) {
+    for (var i = 1; i < iterations; i++) {
       u = Uint8List.fromList(hmac.convert(u).bytes);
       for (var k = 0; k < keyPart1.length; k++) {
         keyPart1[k] ^= u[k];
@@ -70,7 +81,7 @@ class VaultCipher {
 
     u = Uint8List.fromList(hmac.convert(block2Input).bytes);
     final keyPart2 = Uint8List.fromList(u);
-    for (var i = 1; i < pbkdf2Iterations; i++) {
+    for (var i = 1; i < iterations; i++) {
       u = Uint8List.fromList(hmac.convert(u).bytes);
       for (var k = 0; k < keyPart2.length; k++) {
         keyPart2[k] ^= u[k];
@@ -85,7 +96,14 @@ class VaultCipher {
 
   /// Encrypts [plaintext] with [passphrase].
   /// Layout: [9B magic] + [16B salt] + [16B iv] + [32B hmac] + [ciphertext]
-  static Uint8List encrypt(Uint8List plaintext, String passphrase) {
+  /// [legacy] writes the old "TEDVAULT1" format; it exists only so tests can
+  /// check that files from older versions still open.
+  static Uint8List encrypt(
+    Uint8List plaintext,
+    String passphrase, {
+    bool legacy = false,
+  }) {
+    final header = utf8.encode(legacy ? _magicV1 : magic);
     final rng = Random.secure();
     final salt = Uint8List(saltLength);
     final iv = Uint8List(ivLength);
@@ -96,7 +114,11 @@ class VaultCipher {
       iv[i] = rng.nextInt(256);
     }
 
-    final keyMaterial = deriveKeys(passphrase, salt);
+    final keyMaterial = deriveKeys(
+      passphrase,
+      salt,
+      iterations: legacy ? _pbkdf2IterationsV1 : pbkdf2Iterations,
+    );
     final encKey = keyMaterial.sublist(0, 32);
     final macKey = keyMaterial.sublist(32, 64);
 
@@ -106,14 +128,14 @@ class VaultCipher {
     // Compute MAC over magic + salt + iv + ciphertext
     final macHmac = Hmac(sha256, macKey);
     final macPayload = BytesBuilder(copy: false)
-      ..add(utf8.encode(magic))
+      ..add(header)
       ..add(salt)
       ..add(iv)
       ..add(ciphertext);
     final mac = macHmac.convert(macPayload.takeBytes()).bytes;
 
     final output = BytesBuilder(copy: false)
-      ..add(utf8.encode(magic))
+      ..add(header)
       ..add(salt)
       ..add(iv)
       ..add(mac)
@@ -132,11 +154,14 @@ class VaultCipher {
       );
     }
 
-    for (var i = 0; i < magicBytes.length; i++) {
-      if (encryptedData[i] != magicBytes[i]) {
-        throw const VaultAuthException('Missing vault document header');
-      }
+    final header = utf8.decode(
+      encryptedData.sublist(0, magicBytes.length),
+      allowMalformed: true,
+    );
+    if (header != magic && header != _magicV1) {
+      throw const VaultAuthException('Missing vault document header');
     }
+    final isV1 = header == _magicV1;
 
     var offset = magicBytes.length;
     final salt = encryptedData.sublist(offset, offset + saltLength);
@@ -147,14 +172,18 @@ class VaultCipher {
     offset += macLength;
     final ciphertext = encryptedData.sublist(offset);
 
-    final keyMaterial = deriveKeys(passphrase, salt);
+    final keyMaterial = deriveKeys(
+      passphrase,
+      salt,
+      iterations: isV1 ? _pbkdf2IterationsV1 : pbkdf2Iterations,
+    );
     final encKey = keyMaterial.sublist(0, 32);
     final macKey = keyMaterial.sublist(32, 64);
 
     // Verify MAC
     final macHmac = Hmac(sha256, macKey);
     final macPayload = BytesBuilder(copy: false)
-      ..add(magicBytes)
+      ..add(utf8.encode(header))
       ..add(salt)
       ..add(iv)
       ..add(ciphertext);
@@ -202,7 +231,8 @@ class VaultCipher {
     required String passphrase,
   }) async {
     final bytes = await source.readAsBytes();
-    final encrypted = encrypt(bytes, passphrase);
+    // Off the main thread: deriving the key takes a moment on purpose.
+    final encrypted = await Isolate.run(() => encrypt(bytes, passphrase));
     return target.writeAsBytes(encrypted, flush: true);
   }
 
@@ -213,7 +243,7 @@ class VaultCipher {
     required String passphrase,
   }) async {
     final bytes = await source.readAsBytes();
-    final decrypted = decrypt(bytes, passphrase);
+    final decrypted = await Isolate.run(() => decrypt(bytes, passphrase));
     return target.writeAsBytes(decrypted, flush: true);
   }
 }

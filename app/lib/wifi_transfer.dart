@@ -53,6 +53,12 @@ class WifiTransferService {
   DateTime? lastSeen;
 
   bool get isRunning => _server != null;
+
+  /// After this many wrong access codes nothing is served until the
+  /// transfer is started again (which makes a new code).
+  static const maxWrongCodes = 20;
+  int _wrongCodes = 0;
+  bool get lockedOut => _wrongCodes >= maxWrongCodes;
   String get code => _code;
   Stream<void> get changes => _changes.stream;
   Stream<File> get onFileReceived => _received.stream;
@@ -111,6 +117,7 @@ class WifiTransferService {
     _deviceName = deviceName;
     final rng = Random.secure();
     _code = List.generate(6, (_) => rng.nextInt(10)).join();
+    _wrongCodes = 0;
     activity.clear();
     lastSeen = null;
 
@@ -151,7 +158,16 @@ class WifiTransferService {
         response.write(wifiTransferPageHtml);
         return await response.close();
       }
+      if (lockedOut) {
+        response.statusCode = HttpStatus.tooManyRequests;
+        response.write('Too many wrong codes. Start the transfer again.');
+        return await response.close();
+      }
       if (params['k'] != _code) {
+        // A 6-digit code must not be guessable by trying them all.
+        if ((params['k'] ?? '').isNotEmpty && ++_wrongCodes >= maxWrongCodes) {
+          _changed();
+        }
         response.statusCode = HttpStatus.forbidden;
         response.write('Wrong access code');
         return await response.close();

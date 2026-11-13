@@ -7,7 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'backup_plan.dart';
 import 'device.dart' as device;
 import 'drive_controller.dart';
-import 'stored_file.dart' show formatBytes;
+import 'stored_file.dart' show FileKind, formatBytes;
 import 'tedrive_service.dart';
 
 /// Phone backup and "free up space". Lives as long as the drive screen,
@@ -113,10 +113,29 @@ class BackupController extends ChangeNotifier {
       else
         'automatic backup off',
     ].join(' · ');
-    final key = '$status|$detail';
+    final files = _drive.files;
+    final photos = files.where((f) => f.kind == FileKind.image).length;
+    final videos = files.where((f) => f.kind == FileKind.video).length;
+    final waiting = hasPermission ? pending.length : 0;
+    final values = <String, Object>{
+      'status': status,
+      'detail': detail,
+      'progress': running && runTotal > 0
+          ? (runDone * 100 ~/ runTotal).clamp(0, 100)
+          : -1,
+      'size': formatBytes(_drive.totalBytes),
+      'count': groupThousands(files.length),
+      'files': files.length == 1
+          ? '1 file'
+          : '${groupThousands(files.length)} files',
+      'media':
+          '${groupThousands(photos)} photos · ${groupThousands(videos)} videos',
+      'waiting': groupThousands(waiting),
+    };
+    final key = values.toString();
     if (key == _widgetShown) return;
     _widgetShown = key;
-    device.updateWidget(status, detail);
+    device.updateWidget(values);
   }
 
   /// Tells Android when to wake TeDrive (or remind) for scheduled backup.
@@ -427,6 +446,10 @@ class BackupController extends ChangeNotifier {
   /// its notification text current.
   void _onDriveChanged() {
     if (_disposed) return;
+    _widgetTimer ??= Timer(const Duration(seconds: 2), () {
+      _widgetTimer = null;
+      if (!_disposed) _updateWidget();
+    });
     final active = _drive.hasActiveUploads || running;
     final now = DateTime.now();
     if (!active) {

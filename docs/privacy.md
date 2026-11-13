@@ -10,6 +10,7 @@ TeDrive is a client for your own Telegram account. It has no server of its own.
 - **Your Telegram API ID and hash**, which you create at my.telegram.org. Stored on your device only.
 - **Your files.** Files you add, and photos and videos you choose to back up, are uploaded to a private channel in your own Telegram account. They go directly from your device to Telegram.
 - **Photo details.** The location and camera model inside a photo's EXIF data are read on your device and saved with the file in your Telegram channel, so the photo map works.
+- **What is in your photos.** On Android, TeDrive looks at your photos on the device (Google ML Kit, with its models built into the app) to find things, printed text and faces, so that search and smart albums work. The results are kept in a file on your device only. Nothing is uploaded, and faces are only counted, not identified.
 - **Vault files** are encrypted on your device with your passphrase before upload. The passphrase never leaves your device.
 
 ## What TeDrive does not do

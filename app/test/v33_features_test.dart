@@ -1,4 +1,5 @@
 import 'package:tedrive/backup_plan.dart';
+import 'package:tedrive/search.dart';
 import 'package:tedrive/stored_file.dart';
 import 'package:test/test.dart';
 
@@ -160,18 +161,100 @@ void main() {
     expect(describeWhen(DateTime(2026, 11, 3, 7, 30), now), '3 Nov 07:30');
   });
 
-  test('content search matches every word', () {
-    final f = file(1, name: 'IMG_1.jpg');
-    bool inPhoto(StoredFile _, String q) =>
-        q.split(' ').every('beach sky sunset'.contains);
-    expect(
-      filterFiles([f], query: 'beach', contentMatches: inPhoto),
-      hasLength(1),
-    );
-    expect(filterFiles([f], query: 'beach'), isEmpty);
-    expect(
-      filterFiles([f], query: 'receipt', contentMatches: inPhoto),
-      isEmpty,
-    );
+  group('search', () {
+    final beach = file(1, name: 'IMG_1.jpg');
+    const content = PhotoContent(labels: ['Beach', 'Sky'], faces: 2);
+    PhotoContent? contentOf(StoredFile f) => f.messageId == 1 ? content : null;
+
+    test('finds photos by what is in them', () {
+      expect(
+        filterFiles([beach], query: 'beach', contentOf: contentOf),
+        hasLength(1),
+      );
+      expect(filterFiles([beach], query: 'beach'), isEmpty);
+      expect(
+        filterFiles([beach], query: 'receipt', contentOf: contentOf),
+        isEmpty,
+      );
+    });
+
+    test('every word must match, in any order, plurals too', () {
+      expect(matchesSearch(beach, 'sky beaches', content), isTrue);
+      expect(matchesSearch(beach, 'sky mountain', content), isFalse);
+      expect(matchesSearch(beach, 'photos', content), isTrue);
+    });
+
+    test('faces', () {
+      expect(matchesSearch(beach, 'people', content), isTrue);
+      expect(matchesSearch(beach, 'group', content), isTrue);
+      expect(matchesSearch(beach, 'selfie', content), isFalse);
+      expect(
+        matchesSearch(beach, 'selfie', const PhotoContent(faces: 1)),
+        isTrue,
+      );
+    });
+
+    test('type, year and month', () {
+      final f = StoredFile(
+        messageId: 9,
+        fileId: 9,
+        name: 'holiday.mp4',
+        size: 1,
+        folder: 'Trips/Goa',
+        date: DateTime(2026, 11, 3),
+      );
+      expect(matchesSearch(f, 'video'), isTrue);
+      expect(matchesSearch(f, 'videos 2026'), isTrue);
+      expect(matchesSearch(f, 'november goa'), isTrue);
+      expect(matchesSearch(f, 'photo'), isFalse);
+      expect(matchesSearch(f, '2025'), isFalse);
+    });
+
+    test('text inside a photo', () {
+      const c = PhotoContent(text: 'Total amount due 450.00 thank you');
+      expect(matchesSearch(beach, 'amount 450', c), isTrue);
+    });
+
+    test('content survives saving', () {
+      final back = PhotoContent.fromJson(content.toJson());
+      expect(back.labels, content.labels);
+      expect(back.faces, 2);
+    });
+  });
+
+  group('smart albums', () {
+    test('people, groups and common things', () {
+      final photos = [for (var i = 1; i <= 6; i++) file(i)];
+      PhotoContent? contentOf(StoredFile f) => switch (f.messageId) {
+        1 || 2 || 3 => const PhotoContent(labels: ['Food'], faces: 1),
+        4 => const PhotoContent(labels: ['Food'], faces: 3),
+        5 => const PhotoContent(labels: ['Sky']),
+        _ => null,
+      };
+      final albums = smartAlbums(photos, contentOf);
+      expect(albums.map((a) => a.title), [
+        'People',
+        'Selfies & portraits',
+        'Food',
+      ]);
+      expect(albums.first.files, hasLength(4));
+      // Opening an album searches for it, and finds the same photos.
+      for (final a in albums) {
+        expect(
+          filterFiles(photos, query: a.query, contentOf: contentOf),
+          a.files,
+        );
+      }
+    });
+
+    test('nothing looked at yet', () {
+      expect(smartAlbums([file(1)], (_) => null), isEmpty);
+    });
+  });
+
+  test('groupThousands', () {
+    expect(groupThousands(0), '0');
+    expect(groupThousands(999), '999');
+    expect(groupThousands(1234567), '1,234,567');
   });
 }

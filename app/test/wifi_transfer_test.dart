@@ -178,4 +178,21 @@ void main() {
     expect(r.statusCode, 403);
     await r.drain<void>();
   });
+
+  // Last: it locks the server.
+  test('guessing the code locks the transfer', () async {
+    if (!hasNetwork) return;
+    // Earlier tests already used a few wrong codes.
+    for (var i = 0; i < WifiTransferService.maxWrongCodes; i++) {
+      if (service.lockedOut) break;
+      final r = await get('/api/info?k=wrong$i');
+      expect(r.statusCode, 403);
+      await r.drain<void>();
+    }
+    expect(service.lockedOut, isTrue);
+    // Even the right code is refused now.
+    final r = await get('/api/info?k=${service.code}');
+    expect(r.statusCode, 429);
+    await r.drain<void>();
+  });
 }

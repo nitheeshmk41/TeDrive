@@ -1,6 +1,7 @@
-// Search photos by what is in them: labels ("beach", "food", "receipt"…)
-// and printed text, worked out on the phone by Google ML Kit. Nothing is
-// sent anywhere; the results stay in a file on this device.
+// Looks inside the drive's photos, on the phone (Google ML Kit, models
+// built into the app): things ("beach", "food"), printed text and faces.
+// Search and the smart albums use it. Nothing is sent anywhere; the
+// results stay in a file on this device.
 
 import 'dart:async';
 import 'dart:convert';
@@ -11,15 +12,19 @@ import 'package:path_provider/path_provider.dart';
 
 import 'device.dart' as device;
 import 'drive_controller.dart';
+import 'search.dart';
 import 'stored_file.dart';
 
 class ContentIndex extends ChangeNotifier {
   ContentIndex(this._drive);
 
+  /// Raised when what is stored per photo changes, so old results are redone.
+  static const _version = 2;
+
   final DriveController _drive;
 
-  /// Message id -> lower-case labels and text found in the photo.
-  final Map<int, String> _found = {};
+  /// Message id -> what was found in that photo.
+  final Map<int, PhotoContent> _found = {};
 
   /// Photos that could not be read this session (no preview yet, say).
   final Set<int> _skipped = {};
@@ -27,6 +32,7 @@ class ContentIndex extends ChangeNotifier {
   bool _disposed = false;
   bool _running = false;
   int _unsaved = 0;
+  List<SmartAlbum>? _albums;
 
   /// This device can look inside photos.
   static bool get available => device.isAndroid;
@@ -45,13 +51,11 @@ class ContentIndex extends ChangeNotifier {
     );
   }
 
-  /// Whether [file]'s contents match the search [query].
-  bool matches(StoredFile file, String query) {
-    final text = _found[file.messageId];
-    if (text == null) return false;
-    final words = query.toLowerCase().split(RegExp(r'\s+'));
-    return words.every((w) => w.isEmpty || text.contains(w));
-  }
+  /// What is in [file], if it has been looked at.
+  PhotoContent? contentOf(StoredFile file) => _found[file.messageId];
+
+  /// People, text and the most common things, as albums.
+  List<SmartAlbum> get albums => _albums ??= smartAlbums(_photos, contentOf);
 
   Future<void> init() async {
     if (!available) return;
@@ -60,29 +64,32 @@ class ContentIndex extends ChangeNotifier {
     try {
       if (_file!.existsSync()) {
         final m = jsonDecode(await _file!.readAsString());
-        if (m is Map && m['items'] is Map) {
+        if (m is Map && m['v'] == _version && m['items'] is Map) {
           for (final e in (m['items'] as Map).entries) {
             final id = int.tryParse('${e.key}');
-            if (id != null && e.value is String) _found[id] = e.value as String;
+            if (id != null && e.value is Map) {
+              _found[id] = PhotoContent.fromJson(e.value as Map);
+            }
           }
         }
       }
     } on Object {
       // A damaged index is rebuilt.
     }
-    _drive.addListener(_kick);
-    _kick();
+    _drive.addListener(_onDriveChanged);
+    _onDriveChanged();
   }
 
   @override
   void dispose() {
     _disposed = true;
-    _drive.removeListener(_kick);
+    _drive.removeListener(_onDriveChanged);
     _save();
     super.dispose();
   }
 
-  void _kick() {
+  void _onDriveChanged() {
+    _albums = null;
     if (_running || _disposed || _drive.loading) return;
     _run();
   }
@@ -99,10 +106,11 @@ class ContentIndex extends ChangeNotifier {
             )
             .firstOrNull;
         if (next == null) break;
-        // Uploads and the user's own downloads go first.
+        // Uploads go first.
         while (_drive.hasActiveUploads && !_disposed) {
           await Future<void>.delayed(const Duration(seconds: 5));
         }
+        if (_disposed) break;
         final path =
             _drive.localCopyOf(next) ??
             await _drive.thumbnail(next).catchError((_) => null);
@@ -110,10 +118,12 @@ class ContentIndex extends ChangeNotifier {
         if (result == null) {
           _skipped.add(next.messageId);
         } else {
-          _found[next.messageId] = [
-            ...result.labels,
-            result.text.replaceAll(RegExp(r'\s+'), ' '),
-          ].join(' ').toLowerCase().trim();
+          _found[next.messageId] = PhotoContent(
+            labels: result.labels,
+            text: result.text.replaceAll(RegExp(r'\s+'), ' ').trim(),
+            faces: result.faces,
+          );
+          _albums = null;
           if (++_unsaved >= 25) await _save();
           if (!_disposed) notifyListeners();
         }
@@ -138,8 +148,10 @@ class ContentIndex extends ChangeNotifier {
       final tmp = File('${file.path}.tmp');
       await tmp.writeAsString(
         jsonEncode({
-          'v': 1,
-          'items': {for (final e in _found.entries) '${e.key}': e.value},
+          'v': _version,
+          'items': {
+            for (final e in _found.entries) '${e.key}': e.value.toJson(),
+          },
         }),
         flush: true,
       );

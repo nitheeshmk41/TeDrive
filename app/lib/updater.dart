@@ -149,6 +149,9 @@ class _UpdateDialogState extends State<_UpdateDialog> {
   double? _progress; // null while not downloading
   String? _error;
 
+  /// Set when the new APK has a different signing key: where it was saved.
+  String? _conflictApk;
+
   @override
   void initState() {
     super.initState();
@@ -200,6 +203,22 @@ class _UpdateDialogState extends State<_UpdateDialog> {
         if (total > 0 && mounted) setState(() => _progress = done / total);
       }
       await sink.close();
+      if (await device.apkMatchesInstalled(file.path) == false) {
+        // Android would refuse it ("package conflicts"). Keep the APK where
+        // the user can find it after uninstalling.
+        final saved = await device.saveToDownloads(
+          file.path,
+          name: 'TeDrive-${release.tag}.apk',
+          mime: 'application/vnd.android.package-archive',
+        );
+        if (mounted) {
+          setState(() {
+            _progress = null;
+            _conflictApk = saved ?? '';
+          });
+        }
+        return;
+      }
       final opened = await device.openFile(
         file.path,
         mime: 'application/vnd.android.package-archive',
@@ -243,6 +262,41 @@ class _UpdateDialogState extends State<_UpdateDialog> {
           const SizedBox(height: 12),
           Text(
             'Downloading ${_release!.tag}… ${((_progress ?? 0) * 100).round()}%',
+          ),
+        ],
+      );
+    } else if (_conflictApk != null) {
+      body = Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'This update needs a fresh install',
+            style: theme.textTheme.titleMedium,
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'The TeDrive on this phone was signed with an older key, so '
+            'Android will not install the new version over it. This is '
+            'needed only once.',
+          ),
+          const SizedBox(height: 12),
+          Text(
+            _conflictApk!.isEmpty
+                ? '1. Uninstall TeDrive.\n'
+                      '2. Download the new version from the releases page '
+                      'and install it.\n'
+                      '3. Sign in again.'
+                : '1. The new version is saved as $_conflictApk.\n'
+                      '2. Uninstall TeDrive.\n'
+                      '3. Open that file from your Files app to install it.\n'
+                      '4. Sign in again.',
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Your files are safe: they are in your Telegram account, not '
+            'in the app.',
+            style: theme.textTheme.bodySmall,
           ),
         ],
       );
@@ -299,7 +353,12 @@ class _UpdateDialogState extends State<_UpdateDialog> {
             onPressed: () => Navigator.pop(context),
             child: Text(_hasUpdate ? 'Later' : 'Close'),
           ),
-        if (_hasUpdate && _progress == null)
+        if (_conflictApk != null)
+          FilledButton(
+            onPressed: device.uninstallSelf,
+            child: const Text('Uninstall TeDrive'),
+          )
+        else if (_hasUpdate && _progress == null)
           FilledButton(
             onPressed: _install,
             child: Text(

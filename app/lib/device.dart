@@ -97,9 +97,12 @@ Future<String?> takeLaunchAction() async {
   }
 }
 
-/// Labels ("Beach", "Food"…) and printed text found in a photo, worked out
+/// Labels ("Beach", "Food"…), printed text and the number of faces found in
+/// a photo, worked out
 /// on the phone. Null where this is not available or the image is unreadable.
-Future<({List<String> labels, String text})?> analyzeImage(String path) async {
+Future<({List<String> labels, String text, int faces})?> analyzeImage(
+  String path,
+) async {
   if (!isAndroid) return null;
   try {
     final m = await _channel.invokeMapMethod<String, Object?>('analyzeImage', {
@@ -109,6 +112,7 @@ Future<({List<String> labels, String text})?> analyzeImage(String path) async {
     return (
       labels: (m['labels'] as List? ?? const []).whereType<String>().toList(),
       text: m['text'] as String? ?? '',
+      faces: m['faces'] as int? ?? 0,
     );
   } on PlatformException {
     return null;
@@ -133,14 +137,12 @@ Future<String?> saveToDownloads(
   });
 }
 
-/// Updates the home-screen widget.
-Future<void> updateWidget(String status, String detail) async {
+/// Updates the home-screen widgets (status, detail, progress, size, count,
+/// files, media, waiting).
+Future<void> updateWidget(Map<String, Object> values) async {
   if (!isAndroid) return;
   try {
-    await _channel.invokeMethod<void>('updateWidget', {
-      'status': status,
-      'detail': detail,
-    });
+    await _channel.invokeMethod<void>('updateWidget', values);
   } on PlatformException {
     // The widget is a nicety.
   }
@@ -328,4 +330,27 @@ Future<void> stopKeepAlive() async {
 Future<void> requestNotificationPermission() async {
   if (!isAndroid) return;
   await _channel.invokeMethod<void>('requestNotificationPermission');
+}
+
+/// Whether the APK at [path] is signed with the same key as the installed
+/// TeDrive, so Android will install it as an update. Null if unknown.
+Future<bool?> apkMatchesInstalled(String path) async {
+  if (!isAndroid) return null;
+  try {
+    return await _channel.invokeMethod<bool>('apkMatchesInstalled', {
+      'path': path,
+    });
+  } on PlatformException {
+    return null;
+  }
+}
+
+/// Opens Android's "Uninstall TeDrive?" screen.
+Future<bool> uninstallSelf() async {
+  if (!isAndroid) return false;
+  try {
+    return await _channel.invokeMethod<bool>('uninstallSelf') ?? false;
+  } on PlatformException {
+    return false;
+  }
 }

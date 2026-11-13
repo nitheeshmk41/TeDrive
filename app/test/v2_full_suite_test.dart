@@ -149,7 +149,7 @@ void main() {
       final encrypted = VaultCipher.encrypt(clearBytes, passphrase);
 
       // Ciphertext must have magic header
-      expect(utf8.decode(encrypted.sublist(0, 9)), 'TEDVAULT1');
+      expect(utf8.decode(encrypted.sublist(0, 9)), VaultCipher.magic);
       // Ciphertext must be longer than plaintext (magic + salt + iv + mac)
       expect(encrypted.length, clearBytes.length + 9 + 16 + 16 + 32);
       // Ciphertext must not contain the plaintext string

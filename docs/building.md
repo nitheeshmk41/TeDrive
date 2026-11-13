@@ -44,6 +44,8 @@ CI builds every platform and publishes the GitHub release. The in-app updater fi
 
 Release APKs must always be signed with the same key, or phones cannot update in place. CI reads it from these repository secrets: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`. Keep a backup of the keystore outside the repository; `signing/` is git-ignored.
 
+To add them: on GitHub open the repository, then **Settings → Secrets and variables → Actions → New repository secret**, once for each of the four names. Until they are set, CI signs every build with a new throwaway key and prints a warning; such an APK installs on a clean phone but fails with "App not installed as package conflicts with an existing package" over any other build. The app (v3.3.1 and later) notices this before installing and explains the one-time uninstall.
+
 ### Optional release extras
 
 | Secret | What it does |

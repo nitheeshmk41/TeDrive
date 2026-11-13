@@ -101,6 +101,28 @@
         </receiver>
         <!-- Home-screen widget with the backup status. -->
         <receiver
+            android:name=".StorageWidget"
+            android:label="TeDrive storage"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/storage_widget_info" />
+        </receiver>
+        <receiver
+            android:name=".OverviewWidget"
+            android:label="TeDrive overview"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/overview_widget_info" />
+        </receiver>
+        <receiver
             android:name=".BackupWidget"
             android:label="TeDrive backup"
             android:exported="false">

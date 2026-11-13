@@ -271,6 +271,15 @@ class _ConnectCard extends StatelessWidget {
                 ),
               ),
             ),
+            if (service.lockedOut) ...[
+              const SizedBox(height: 16),
+              Text(
+                'Someone tried too many wrong codes, so transfer is paused. '
+                'Close this page and open it again for a new code.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: scheme.error),
+              ),
+            ],
             const SizedBox(height: 16),
             Text('then enter this code', style: theme.textTheme.bodySmall),
             const SizedBox(height: 6),

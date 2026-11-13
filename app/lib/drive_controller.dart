@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'app_lock.dart';
 import 'local_files.dart';
 import 'media_server.dart';
 import 'error_log.dart';
@@ -326,7 +327,14 @@ class DriveController extends ChangeNotifier {
     if (loading) return;
     _catalogueTimer ??= Timer(const Duration(seconds: 2), () {
       _catalogueTimer = null;
-      if (!_disposed) writePickerCatalogue(files, _thumbPaths);
+      if (_disposed) return;
+      // With an app lock, other apps must not browse the drive through
+      // Android's file picker without the PIN.
+      if (AppLockService.instance.isConfigured) {
+        clearPickerCatalogue();
+      } else {
+        writePickerCatalogue(files, _thumbPaths);
+      }
     });
   }
 

@@ -262,3 +262,7 @@ String describeWhen(DateTime t, DateTime now) {
   ];
   return '${t.day} ${months[t.month - 1]} $time';
 }
+
+/// 1234567 -> "1,234,567".
+String groupThousands(int n) =>
+    n.toString().replaceAllMapped(RegExp(r'\B(?=(\d{3})+$)'), (_) => ',');

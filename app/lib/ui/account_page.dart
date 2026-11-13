@@ -342,8 +342,9 @@ class _AccountPageState extends State<AccountPage> {
                               await _setupPin();
                             } else {
                               await AppLockService.instance.disable();
-                              if (mounted)
+                              if (mounted) {
                                 setState(() => _appLockEnabled = false);
+                              }
                             }
                           },
                         ),

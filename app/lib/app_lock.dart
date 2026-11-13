@@ -32,6 +32,53 @@ class AppLockService {
   bool _isUnlocked = false;
   bool _isConfigured = false;
 
+  // A 4-digit PIN has only 10,000 possibilities, so wrong guesses are
+  // slowed down: after 5 in a row the keypad pauses, longer each time.
+  // Kept in secure storage so that restarting the app does not reset it.
+  static const _failKey = 'tedrive_app_lock_failures';
+  static const _untilKey = 'tedrive_app_lock_until';
+  static const _freeTries = 5;
+  int _failures = 0;
+  DateTime? _lockedUntil;
+
+  /// How long PIN entry is still paused after too many wrong tries.
+  Duration get lockedFor {
+    final until = _lockedUntil;
+    if (until == null) return Duration.zero;
+    final left = until.difference(DateTime.now());
+    return left.isNegative ? Duration.zero : left;
+  }
+
+  /// The pause after [failures] wrong PINs in a row: none for the first
+  /// few, then 30 s, 1 min, 2 min… up to 15 minutes.
+  static Duration pauseAfter(int failures) {
+    if (failures < _freeTries) return Duration.zero;
+    final steps = failures - _freeTries;
+    final seconds = steps >= 5 ? 900 : 30 * (1 << steps);
+    return Duration(seconds: seconds > 900 ? 900 : seconds);
+  }
+
+  Future<void> _recordFailure() async {
+    _failures++;
+    final pause = pauseAfter(_failures);
+    _lockedUntil = pause == Duration.zero ? null : DateTime.now().add(pause);
+    await _storage.write(key: _failKey, value: '$_failures');
+    if (_lockedUntil != null) {
+      await _storage.write(
+        key: _untilKey,
+        value: '${_lockedUntil!.millisecondsSinceEpoch}',
+      );
+    }
+  }
+
+  Future<void> _clearFailures() async {
+    if (_failures == 0 && _lockedUntil == null) return;
+    _failures = 0;
+    _lockedUntil = null;
+    await _storage.delete(key: _failKey);
+    await _storage.delete(key: _untilKey);
+  }
+
   bool get isUnlocked => !_isConfigured || _isUnlocked;
   bool get isConfigured => _isConfigured;
 
@@ -40,6 +87,11 @@ class AppLockService {
       final hash = await _storage.read(key: _pinHashKey);
       _isConfigured = hash != null && hash.isNotEmpty;
       _biometric = await _storage.read(key: _bioKey) == 'true';
+      _failures = int.tryParse(await _storage.read(key: _failKey) ?? '') ?? 0;
+      final until = int.tryParse(await _storage.read(key: _untilKey) ?? '');
+      if (until != null) {
+        _lockedUntil = DateTime.fromMillisecondsSinceEpoch(until);
+      }
     } catch (_) {
       _isConfigured = false;
     }
@@ -105,11 +157,14 @@ class AppLockService {
         _isConfigured = false;
         return true;
       }
+      if (lockedFor > Duration.zero) return false;
       final computed = _hashPin(enteredPin, storedSalt);
       if (computed == storedHash) {
         _isUnlocked = true;
+        await _clearFailures();
         return true;
       }
+      await _recordFailure();
       return false;
     } catch (_) {
       return false;
@@ -129,6 +184,7 @@ class AppLockService {
     await _storage.delete(key: _pinHashKey);
     await _storage.delete(key: _pinSaltKey);
     await _storage.delete(key: _bioKey);
+    await _clearFailures();
     _biometric = false;
     _isConfigured = false;
     _isUnlocked = true;
@@ -186,8 +242,19 @@ class _AppLockScreenState extends State<AppLockScreen> {
     }
   }
 
+  String _pauseText() {
+    final left = AppLockService.instance.lockedFor.inSeconds + 1;
+    return left > 90
+        ? 'Too many wrong PINs. Try again in ${(left / 60).ceil()} minutes.'
+        : 'Too many wrong PINs. Try again in $left seconds.';
+  }
+
   void _onDigit(String digit) {
     if (_pin.length >= 4 || _verifying) return;
+    if (AppLockService.instance.lockedFor > Duration.zero) {
+      setState(() => _error = _pauseText());
+      return;
+    }
     setState(() {
       _pin += digit;
       _error = null;
@@ -214,7 +281,9 @@ class _AppLockScreenState extends State<AppLockScreen> {
     } else {
       setState(() {
         _pin = '';
-        _error = 'Incorrect PIN';
+        _error = AppLockService.instance.lockedFor > Duration.zero
+            ? _pauseText()
+            : 'Incorrect PIN';
         _verifying = false;
       });
     }

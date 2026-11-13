@@ -19,6 +19,7 @@ import '../content_index.dart';
 import '../device.dart' as device;
 import '../config.dart';
 import '../drive_controller.dart';
+import '../search.dart';
 import '../error_log.dart';
 import '../stored_file.dart';
 import '../td/web_bridge.dart';
@@ -87,6 +88,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (!mounted) return;
       if (_hasBackup) _backup.init().then((_) => _takeLaunchAction());
       _contents.init();
+      _clearDecryptedVaultCopies();
       // Keep the app light: downloaded copies are a cache, not storage.
       _drive.trimCache(_cacheLimitBytes).catchError((_) {});
       _takeSharedFiles();
@@ -98,8 +100,25 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _contents.addListener(_onContentsChanged);
   }
 
+  /// Opening a vault file writes a decrypted copy to the cache. Copies left
+  /// from an earlier session are removed, so they do not stay on the phone.
+  Future<void> _clearDecryptedVaultCopies() async {
+    if (kIsWeb) return;
+    try {
+      final tmp = await getTemporaryDirectory();
+      await for (final f in tmp.list()) {
+        final name = f.uri.pathSegments.lastWhere((s) => s.isNotEmpty);
+        if (f is File && name.startsWith('dec_')) await f.delete();
+      }
+    } on Object {
+      // Nothing to clear.
+    }
+  }
+
   void _onContentsChanged() {
-    if (_query.isNotEmpty && mounted) setState(() {});
+    if (mounted && (_query.isNotEmpty || _tab == _Tab.albums)) {
+      setState(() {});
+    }
   }
 
   Future<void> _takeLaunchAction() async {
@@ -1863,7 +1882,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         filterFiles(
           _drive.files,
           query: _query,
-          contentMatches: _contents.matches,
+          contentOf: _contents.contentOf,
         ),
         emptyTitle: 'No results',
         emptyText: 'Nothing in your drive matches "$_query".',
@@ -1974,7 +1993,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Widget _albums() {
     final rootFolders = directSubfolders(_drive.files);
     final display = rootFolders.isNotEmpty ? rootFolders : _drive.folders;
-    if (display.isEmpty) {
+    final smart = _contents.albums;
+    if (display.isEmpty && smart.isEmpty) {
       return _emptyOrLoading(
         icon: Icons.photo_album_outlined,
         title: 'No albums yet',
@@ -1984,6 +2004,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       );
     }
     return _scroll([
+      if (smart.isNotEmpty) SliverToBoxAdapter(child: _smartAlbums(smart)),
+      if (smart.isNotEmpty && display.isNotEmpty)
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: Text(
+              'Albums',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+          ),
+        ),
       SliverPadding(
         padding: const EdgeInsets.all(12),
         sliver: SliverGrid.builder(
@@ -2009,6 +2040,49 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         ),
       ),
     ]);
+  }
+
+  /// A row of albums made from what is in the photos. Opening one searches
+  /// for it.
+  Widget _smartAlbums(List<SmartAlbum> smart) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          child: Row(
+            children: [
+              Icon(
+                Icons.auto_awesome,
+                size: 18,
+                color: theme.colorScheme.primary,
+              ),
+              const SizedBox(width: 8),
+              Text('Found in your photos', style: theme.textTheme.titleSmall),
+            ],
+          ),
+        ),
+        SizedBox(
+          height: 176,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.all(12),
+            itemCount: smart.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 12),
+            itemBuilder: (context, i) => SizedBox(
+              width: 132,
+              child: _AlbumCard(
+                drive: _drive,
+                name: smart[i].title,
+                files: smart[i].files,
+                onTap: () => setState(() => _search.text = smart[i].query),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _albumPage(String name) => ListenableBuilder(

@@ -98,6 +98,18 @@ class ShareReceiverActivity : Activity() {
     }
 
     /**
+     * Another app must not be able to make TeDrive upload its own private
+     * files (the Telegram session, settings) by "sharing" a path to them.
+     */
+    private fun isOwnPrivateFile(file: File): Boolean = try {
+        val path = file.canonicalPath
+        val own = File(applicationInfo.dataDir).canonicalPath
+        path == own || path.startsWith("$own/")
+    } catch (e: Throwable) {
+        true
+    }
+
+    /**
      * Describes one shared file for the Flutter side. A photo or video that
      * is readable in place is uploaded from where it is; anything else is
      * first copied into TeDrive's cache ("temp"), and removed after upload.
@@ -105,7 +117,11 @@ class ShareReceiverActivity : Activity() {
     private fun resolve(uri: Uri): Map<String, Any?>? {
         if (uri.scheme == "file") {
             val file = File(uri.path ?: return null)
-            return if (file.canRead() && file.length() > 0) describe(file, file.name, 0, temp = false) else null
+            return if (!isOwnPrivateFile(file) && file.canRead() && file.length() > 0) {
+                describe(file, file.name, 0, temp = false)
+            } else {
+                null
+            }
         }
         var name: String? = null
         var path: String? = null
@@ -120,7 +136,7 @@ class ShareReceiverActivity : Activity() {
             }
         }
         val original = path?.let(::File)
-        if (original != null && original.canRead() && original.length() > 0) {
+        if (original != null && !isOwnPrivateFile(original) && original.canRead() && original.length() > 0) {
             return describe(original, name ?: original.name, time, temp = false)
         }
         val dir = File(cacheDir, "incoming/${System.nanoTime()}").apply { mkdirs() }

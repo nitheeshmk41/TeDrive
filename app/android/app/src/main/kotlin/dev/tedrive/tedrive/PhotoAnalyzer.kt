@@ -4,6 +4,8 @@ import android.content.Context
 import android.net.Uri
 import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.face.FaceDetection
+import com.google.mlkit.vision.face.FaceDetectorOptions
 import com.google.mlkit.vision.label.ImageLabeling
 import com.google.mlkit.vision.label.defaults.ImageLabelerOptions
 import com.google.mlkit.vision.text.TextRecognition
@@ -14,7 +16,7 @@ import java.util.concurrent.TimeUnit
 /**
  * Works out what is in a photo, on the phone (Google ML Kit with its models
  * built into the app, so nothing is sent anywhere): labels such as "Beach"
- * or "Food", and any printed text. Used for searching photos by content.
+ * or "Food", any printed text, and how many faces. Used for searching photos by content.
  */
 object PhotoAnalyzer {
     private val labeler by lazy {
@@ -24,6 +26,16 @@ object PhotoAnalyzer {
     }
     private val recognizer by lazy {
         TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+    }
+
+    private val faces by lazy {
+        FaceDetection.getClient(
+            FaceDetectorOptions.Builder()
+                .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
+                // Ignore tiny faces in the background.
+                .setMinFaceSize(0.12f)
+                .build(),
+        )
     }
 
     /** Blocks; never call on the main thread. Null if the image cannot be read. */
@@ -45,6 +57,11 @@ object PhotoAnalyzer {
         } catch (e: Throwable) {
             ""
         }
-        return mapOf("labels" to labels, "text" to text)
+        val faceCount = try {
+            Tasks.await(faces.process(image), 30, TimeUnit.SECONDS).size
+        } catch (e: Throwable) {
+            0
+        }
+        return mapOf("labels" to labels, "text" to text, "faces" to faceCount)
     }
 }

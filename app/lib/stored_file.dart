@@ -4,6 +4,7 @@
 import 'dart:convert';
 
 import 'json.dart';
+import 'search.dart';
 
 export 'json.dart';
 
@@ -522,19 +523,17 @@ List<StoredFile> filterFiles(
   String? folder,
   String query = '',
 
-  /// Also counts as a match for the query, e.g. what is in a photo.
-  bool Function(StoredFile file, String query)? contentMatches,
+  /// What is in a photo, where known, so that search finds it too.
+  PhotoContent? Function(StoredFile file)? contentOf,
 }) {
-  final q = query.trim().toLowerCase();
+  final q = query.trim();
   if (category == Category.all && folder == null && q.isEmpty) return files;
   return files
       .where(
         (f) =>
             inCategory(f, category) &&
             (folder == null || f.folder == folder) &&
-            (q.isEmpty ||
-                f.name.toLowerCase().contains(q) ||
-                (contentMatches?.call(f, q) ?? false)),
+            (q.isEmpty || matchesSearch(f, q, contentOf?.call(f))),
       )
       .toList();
 }

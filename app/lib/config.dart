@@ -6,7 +6,7 @@ const bool isPlayBuild = String.fromEnvironment('STORE') == 'play';
 
 /// This build's version. Keep in step with `version:` in pubspec.yaml
 /// (a unit test checks this).
-const String appVersion = '3.3.0';
+const String appVersion = '3.3.1';
 
 /// Who made TeDrive, shown in About and at the foot of the Account page.
 const String madeByText = 'This was done by Nitheesh.';

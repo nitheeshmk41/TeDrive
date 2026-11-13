@@ -104,6 +104,15 @@ class MainActivity : FlutterFragmentActivity() {
             "deleteMedia" -> deleteMedia(call.argument<List<Map<String, Any>>>("items") ?: emptyList(), result)
             "deviceStatus" -> result.success(deviceStatus())
             "deviceName" -> result.success(deviceName())
+            "apkMatchesInstalled" -> result.success(apkMatchesInstalled(call.argument<String>("path") ?: ""))
+            "uninstallSelf" -> result.success(
+                try {
+                    startActivity(Intent(Intent.ACTION_DELETE, Uri.parse("package:$packageName")))
+                    true
+                } catch (e: Throwable) {
+                    false
+                },
+            )
             "takeLaunchAction" -> {
                 result.success(pendingAction)
                 pendingAction = null
@@ -126,11 +135,8 @@ class MainActivity : FlutterFragmentActivity() {
                 }
             }
             "updateWidget" -> {
-                BackupWidget.save(
-                    applicationContext,
-                    call.argument<String>("status") ?: "",
-                    call.argument<String>("detail") ?: "",
-                )
+                @Suppress("UNCHECKED_CAST")
+                Widgets.save(applicationContext, call.arguments as? Map<String, Any?> ?: emptyMap())
                 result.success(null)
             }
             "setBackupSchedule" -> {
@@ -326,6 +332,27 @@ class MainActivity : FlutterFragmentActivity() {
         if (requestCode == REQUEST_DELETE) {
             pendingDelete?.success(if (resultCode == Activity.RESULT_OK) pendingDeleteCount else 0)
             pendingDelete = null
+        }
+    }
+
+    /**
+     * Whether the APK at [path] is signed with the same key as this app, so
+     * that Android will install it over this one. Null if that cannot be told.
+     */
+    private fun apkMatchesInstalled(path: String): Boolean? {
+        if (Build.VERSION.SDK_INT < 28) return null
+        return try {
+            fun keys(info: android.content.pm.PackageInfo?): Set<String>? =
+                info?.signingInfo?.apkContentsSigners
+                    ?.map { android.util.Base64.encodeToString(it.toByteArray(), android.util.Base64.NO_WRAP) }
+                    ?.toSet()
+                    ?.takeIf { it.isNotEmpty() }
+            val flag = PackageManager.GET_SIGNING_CERTIFICATES
+            val theirs = keys(packageManager.getPackageArchiveInfo(path, flag)) ?: return null
+            val mine = keys(packageManager.getPackageInfo(packageName, flag)) ?: return null
+            theirs == mine
+        } catch (e: Throwable) {
+            null
         }
     }
 

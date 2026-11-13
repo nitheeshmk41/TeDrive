@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="widget_description">TeDrive backup status, with a button to back up now</string>
+    <string name="widget_description">Backup status, with a button to back up now</string>
+    <string name="storage_widget_description">How much is backed up in your drive</string>
+    <string name="overview_widget_description">Backed-up size, files, what is waiting, and a button to back up now</string>
 </resources>
