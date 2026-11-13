@@ -326,15 +326,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   });
 
-  /// Desktop: copies the file into a folder the user picks. Browser:
-  /// saves it to the downloads folder.
-  Future<void> _saveCopy(StoredFile file) => _guard(() async {
+  /// Saves a copy of [file]. [folder] is asked for when not given.
+  Future<void> _saveCopy(
+    StoredFile file, {
+    String? folder,
+    bool quiet = false,
+  }) => _guard(() async {
     if (kIsWeb) {
       final url = await _fetch(file, 'Downloading');
       if (url != null) WebTd.save(url, safeFileName(file.name));
       return;
     }
-    final folder = await FilePicker.getDirectoryPath(
+    folder ??= await FilePicker.getDirectoryPath(
       dialogTitle: 'Save ${file.name} to…',
     );
     if (folder == null) return;
@@ -348,7 +351,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       return;
     }
     await File(path).copy(target.path);
-    _toast('Saved to ${target.path}');
+    if (!quiet) _toast('Saved to ${target.path}');
   });
 
   Future<String?> _ensureShareLink(StoredFile original) async {
@@ -408,7 +411,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _sharePublicLink(StoredFile original) async {
     final link = await _ensureShareLink(original);
     if (link == null) return;
-    await SharePlus.instance.share(ShareParams(text: link));
+    await SharePlus.instance.share(
+      ShareParams(
+        text:
+            '${_latest(original).name}\n$link\n\n'
+            'Opens in Telegram. If your browser cannot open it, paste the '
+            'link into the Telegram app.',
+      ),
+    );
   }
 
   void _shareMenu(StoredFile original) {
@@ -433,9 +443,31 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 ),
                 const Divider(),
                 ListTile(
+                  leading: const Icon(Icons.send_outlined),
+                  title: const Text('Send the file'),
+                  subtitle: Text(
+                    'To WhatsApp, email or any app (${formatBytes(file.size)}). '
+                    'Works for everyone.',
+                  ),
+                  onTap: () {
+                    Navigator.pop(sheet);
+                    _share(original);
+                  },
+                ),
+                const Divider(),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+                  child: Text(
+                    'Public link: opens in Telegram. Some networks block '
+                    'the t.me website; the link still opens when pasted '
+                    'into the Telegram app.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+                ListTile(
                   leading: const Icon(Icons.link),
-                  title: const Text('Copy link'),
-                  subtitle: const Text('Direct link to copy and share'),
+                  title: const Text('Copy public link'),
+                  subtitle: const Text('Anyone with the link can download it'),
                   onTap: () {
                     Navigator.pop(sheet);
                     _copyShareLink(original);
@@ -443,24 +475,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 ),
                 ListTile(
                   leading: const Icon(Icons.share_outlined),
-                  title: const Text('Share link'),
-                  subtitle: const Text(
-                    'Send link via WhatsApp, messaging apps…',
-                  ),
+                  title: const Text('Share public link'),
+                  subtitle: const Text('Send the link instead of the file'),
                   onTap: () {
                     Navigator.pop(sheet);
                     _sharePublicLink(original);
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.download_for_offline_outlined),
-                  title: const Text('Send file directly'),
-                  subtitle: Text(
-                    'Download & send full file (${formatBytes(file.size)})',
-                  ),
-                  onTap: () {
-                    Navigator.pop(sheet);
-                    _share(original);
                   },
                 ),
                 if (file.shareLink != null)
@@ -635,20 +654,103 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     });
   }
 
-  Future<void> _bulkShare(List<StoredFile> targets) => _guard(() async {
-    final paths = <XFile>[];
-    for (final f in targets) {
-      final path = await _fetch(f, 'Preparing');
-      if (path == null) return;
-      paths.add(XFile(path, mimeType: mimeOf(f.name), name: f.name));
+  /// Downloads the [targets] not yet on this device, four at a time, behind
+  /// one progress dialog. False if the user cancelled.
+  Future<bool> _fetchAll(List<StoredFile> targets, String verb) async {
+    final missing = [
+      for (final f in targets)
+        if (!localExists(_latest(f).localPath)) _latest(f),
+    ];
+    if (missing.isEmpty) return true;
+    if (missing.length == 1) return await _fetch(missing.first, verb) != null;
+    final done = ValueNotifier(0);
+    var cancelled = false;
+    var dialogOpen = true;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        content: ValueListenableBuilder<int>(
+          valueListenable: done,
+          builder: (_, n, _) => Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              LinearProgressIndicator(value: n / missing.length),
+              const SizedBox(height: 16),
+              Text(
+                '$verb ${n + 1 > missing.length ? n : n + 1} of '
+                '${missing.length}…',
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              cancelled = true;
+              for (final f in missing) {
+                _drive.cancelDownload(f);
+              }
+              Navigator.pop(ctx);
+            },
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    ).then((_) => dialogOpen = false);
+    var failed = 0;
+    final queue = [...missing.reversed];
+    Future<void> worker() async {
+      while (queue.isNotEmpty && !cancelled) {
+        final f = queue.removeLast();
+        try {
+          await _drive.ensureLocal(f);
+        } catch (_) {
+          if (!cancelled) failed++;
+        }
+        done.value++;
+      }
     }
+
+    await Future.wait([for (var i = 0; i < 4; i++) worker()]);
+    if (dialogOpen && mounted) Navigator.of(context, rootNavigator: true).pop();
+    done.dispose();
+    if (cancelled) return false;
+    if (failed > 0) {
+      _toast('$failed of ${missing.length} files could not be downloaded');
+    }
+    return true;
+  }
+
+  Future<void> _bulkShare(List<StoredFile> targets) => _guard(() async {
+    if (!await _fetchAll(targets, 'Preparing')) return;
+    final paths = <XFile>[
+      for (final f in targets.map(_latest))
+        if (localExists(f.localPath))
+          XFile(f.localPath!, mimeType: mimeOf(f.name), name: f.name),
+    ];
+    if (paths.isEmpty) return;
     await SharePlus.instance.share(ShareParams(files: paths));
   });
 
   Future<void> _bulkDownload(List<StoredFile> targets) async {
-    for (final f in targets) {
-      await _saveCopy(f);
+    if (!await _fetchAll(targets, 'Downloading')) return;
+    // One folder for all of them, instead of asking for every file.
+    final folder = kIsWeb
+        ? null
+        : await FilePicker.getDirectoryPath(
+            dialogTitle: 'Save ${targets.length} files to…',
+          );
+    if (!kIsWeb && folder == null) return;
+    var saved = 0;
+    for (final f in targets.map(_latest)) {
+      if (!localExists(f.localPath)) continue;
+      await _saveCopy(f, folder: folder, quiet: true);
+      saved++;
     }
+    _toast(
+      kIsWeb ? 'Downloaded $saved files' : 'Saved $saved files to $folder',
+    );
   }
 
   PreferredSizeWidget _selectionBar() {
@@ -1178,7 +1280,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                   if (!kIsWeb)
                                     IconButton(
                                       tooltip:
-                                          'Wi-Fi Transfer (Phone to Laptop)',
+                                          'Wi-Fi transfer',
                                       icon: const Icon(Icons.wifi_tethering),
                                       onPressed: _openWifiTransfer,
                                     ),
@@ -1408,7 +1510,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 ),
                 if (!kIsWeb)
                   IconButton(
-                    tooltip: 'Phone-to-Laptop Wi-Fi Transfer',
+                    tooltip: 'Wi-Fi transfer',
                     icon: const Icon(Icons.wifi_tethering),
                     onPressed: _openWifiTransfer,
                   ),
@@ -3161,7 +3263,7 @@ class _WifiTransferSheetState extends State<_WifiTransferSheet> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Phone-to-Laptop Wi-Fi Transfer',
+                        'Wi-Fi transfer',
                         style: theme.textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.bold,
                         ),
@@ -3186,7 +3288,7 @@ class _WifiTransferSheetState extends State<_WifiTransferSheet> {
               Text(_error!, style: TextStyle(color: scheme.error)),
             ] else if (_url != null) ...[
               Text(
-                'Open this link in your laptop browser:',
+                'On another phone or computer on the same Wi-Fi, open:',
                 style: theme.textTheme.bodyMedium,
               ),
               const SizedBox(height: 8),
@@ -3249,7 +3351,7 @@ class _WifiTransferSheetState extends State<_WifiTransferSheet> {
               ),
               const SizedBox(height: 12),
               Text(
-                'Scan QR with laptop or other phone on the same Wi-Fi',
+                'Or scan this code with a phone camera',
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: scheme.onSurfaceVariant,
                 ),
@@ -3260,7 +3362,7 @@ class _WifiTransferSheetState extends State<_WifiTransferSheet> {
               Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
-                  'Received from Laptop (${_received.length})',
+                  'Received (${_received.length})',
                   style: theme.textTheme.titleSmall?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),

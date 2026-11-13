@@ -35,13 +35,13 @@ class UploadTask {
     this.isVault = false,
     this.location,
     this.camera,
-  })  : name = source.name,
-        size = source.lengthSync(),
-        directPath = null,
-        taken = null,
-        knownSha = null,
-        fromBackup = false,
-        deleteAfter = false;
+  }) : name = source.name,
+       size = source.lengthSync(),
+       directPath = null,
+       taken = null,
+       knownSha = null,
+       fromBackup = false,
+       deleteAfter = false;
 
   /// A photo or video read straight from the phone's storage by backup.
   UploadTask.fromPath(
@@ -129,7 +129,8 @@ class DownloadCancelled implements Exception {
 class DriveController extends ChangeNotifier {
   DriveController(this._service) {
     if (!kIsWeb) {
-      PersistedUploadQueue.instance.directoryProvider ??= getApplicationSupportDirectory;
+      PersistedUploadQueue.instance.directoryProvider ??=
+          getApplicationSupportDirectory;
     }
     _updates = _service.td.updates.listen(_onUpdate);
   }
@@ -178,7 +179,10 @@ class DriveController extends ChangeNotifier {
   final Map<int, double?> downloads = {};
   final Set<int> _cancelledDownloads = {};
 
-  bool _pumping = false;
+  /// Uploads that run at the same time. Telegram accepts several at once,
+  /// which is much faster for many small photos than one after another.
+  static const parallelUploads = 3;
+  int _activeUploads = 0;
   bool _disposed = false;
 
   int get totalBytes => files.fold(0, (sum, f) => sum + f.size);
@@ -564,23 +568,25 @@ class DriveController extends ChangeNotifier {
   }
 
   /// Uploads queued tasks one at a time, oldest first.
-  Future<void> _pump() async {
-    if (_pumping || _chatId == null) return;
-    _pumping = true;
-    try {
-      while (!_disposed) {
-        UploadTask? next;
-        for (final t in uploads.reversed) {
-          if (t.status == UploadStatus.queued) {
-            next = t;
-            break;
-          }
+  /// Starts queued uploads, oldest first, up to [parallelUploads] at once.
+  void _pump() {
+    if (_chatId == null) return;
+    while (!_disposed && _activeUploads < parallelUploads) {
+      UploadTask? next;
+      for (final t in uploads.reversed) {
+        if (t.status == UploadStatus.queued) {
+          next = t;
+          break;
         }
-        if (next == null) break;
-        await _runUpload(next);
       }
-    } finally {
-      _pumping = false;
+      if (next == null) return;
+      // Claim it now, so the next pass does not start it again.
+      next.status = UploadStatus.preparing;
+      _activeUploads++;
+      _runUpload(next).whenComplete(() {
+        _activeUploads--;
+        _pump();
+      });
     }
   }
 
@@ -841,13 +847,25 @@ class DriveController extends ChangeNotifier {
   /// Returns a local path for [file], downloading it if needed.
   /// A second request for a file that is already downloading joins the
   /// download in progress.
-  Future<String> ensureLocal(StoredFile file) =>
-      _inFlight[file.messageId] ??= _download(file)
-          .whenComplete(() => _inFlight.remove(file.messageId));
+  ///
+  /// [background] marks a download the user did not ask for (loading the
+  /// next photo ahead of time): it goes after everything else.
+  Future<String> ensureLocal(StoredFile file, {bool background = false}) {
+    final running = _inFlight[file.messageId];
+    if (running != null) {
+      // Started ahead of time and now wanted: move it to the front.
+      if (!background) _service.raisePriority(file.fileId);
+      return running;
+    }
+    return _inFlight[file.messageId] = _download(
+      file,
+      background: background,
+    ).whenComplete(() => _inFlight.remove(file.messageId));
+  }
 
   final Map<int, Future<String>> _inFlight = {};
 
-  Future<String> _download(StoredFile file) async {
+  Future<String> _download(StoredFile file, {bool background = false}) async {
     final id = file.messageId;
     downloads[id] = null;
     _notify();
@@ -855,6 +873,7 @@ class DriveController extends ChangeNotifier {
       final path = await _service.download(
         file.fileId,
         mime: mimeOf(file.name),
+        priority: background ? 2 : 32,
         onProgress: (done, total) {
           if (total > 0 && downloads.containsKey(id)) {
             downloads[id] = done / total;

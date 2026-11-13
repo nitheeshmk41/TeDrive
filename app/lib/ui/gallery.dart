@@ -8,7 +8,9 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:flutter/services.dart';
 
+import '../device.dart' as device;
 import '../drive_controller.dart';
+import '../local_files.dart';
 import '../stored_file.dart';
 
 (IconData, Color) kindVisual(FileKind kind) => switch (kind) {
@@ -329,12 +331,16 @@ class _ImageViewerPageState extends State<ImageViewerPage> {
   }
 
   /// Starts downloading the photos either side, so swiping is instant.
-  void _prefetch(int i) {
+  /// Only on Wi-Fi: on mobile data nothing downloads unless asked for.
+  Future<void> _prefetch(int i) async {
+    if (!(await device.deviceStatus()).unmetered) return;
     for (final n in [i + 1, i - 1]) {
       if (n < 0 || n >= widget.files.length) continue;
       final f = widget.files[n];
       if (f.kind == FileKind.image && !widget.drive.isDownloading(f)) {
-        widget.drive.ensureLocal(f).then((_) {}, onError: (_) {});
+        widget.drive
+            .ensureLocal(f, background: true)
+            .then((_) {}, onError: (_) {});
       }
     }
   }
@@ -478,7 +484,10 @@ class _PhotoDetailsSheet extends StatelessWidget {
                 ),
                 if (file.isVault)
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: scheme.primaryContainer,
                       borderRadius: BorderRadius.circular(12),
@@ -486,7 +495,11 @@ class _PhotoDetailsSheet extends StatelessWidget {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.lock_rounded, size: 14, color: scheme.onPrimaryContainer),
+                        Icon(
+                          Icons.lock_rounded,
+                          size: 14,
+                          color: scheme.onPrimaryContainer,
+                        ),
                         const SizedBox(width: 4),
                         Text(
                           'Encrypted Vault',
@@ -502,8 +515,18 @@ class _PhotoDetailsSheet extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 16),
-            _infoRow(context, Icons.insert_drive_file_outlined, 'File name', file.name),
-            _infoRow(context, Icons.data_usage_outlined, 'Size', formatBytes(file.size)),
+            _infoRow(
+              context,
+              Icons.insert_drive_file_outlined,
+              'File name',
+              file.name,
+            ),
+            _infoRow(
+              context,
+              Icons.data_usage_outlined,
+              'Size',
+              formatBytes(file.size),
+            ),
             _infoRow(
               context,
               Icons.calendar_today_outlined,
@@ -513,10 +536,20 @@ class _PhotoDetailsSheet extends StatelessWidget {
             if (file.folder != null)
               _infoRow(context, Icons.folder_outlined, 'Album', file.folder!),
             if (file.camera != null && file.camera!.isNotEmpty)
-              _infoRow(context, Icons.camera_alt_outlined, 'Camera', file.camera!),
+              _infoRow(
+                context,
+                Icons.camera_alt_outlined,
+                'Camera',
+                file.camera!,
+              ),
             if (file.device != null)
-              _infoRow(context, Icons.devices_outlined, 'Uploaded from', file.device!),
-            
+              _infoRow(
+                context,
+                Icons.devices_outlined,
+                'Uploaded from',
+                file.device!,
+              ),
+
             // Map section
             if (loc != null) ...[
               const Divider(height: 32),
@@ -563,8 +596,11 @@ class _PhotoDetailsSheet extends StatelessWidget {
                             width: 40,
                             height: 40,
                             alignment: Alignment.topCenter,
-                            child: Icon(Icons.location_pin,
-                                color: scheme.error, size: 40),
+                            child: Icon(
+                              Icons.location_pin,
+                              color: scheme.error,
+                              size: 40,
+                            ),
                           ),
                         ],
                       ),
@@ -582,10 +618,13 @@ class _PhotoDetailsSheet extends StatelessWidget {
                   icon: const Icon(Icons.map_outlined),
                   label: const Text('Open in Maps'),
                   onPressed: () {
-                    final url = 'https://www.google.com/maps/search/?api=1&query=${loc.lat},${loc.lng}';
+                    final url =
+                        'https://www.google.com/maps/search/?api=1&query=${loc.lat},${loc.lng}';
                     Clipboard.setData(ClipboardData(text: url));
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Maps link copied to clipboard')),
+                      const SnackBar(
+                        content: Text('Maps link copied to clipboard'),
+                      ),
                     );
                   },
                 ),
@@ -597,7 +636,12 @@ class _PhotoDetailsSheet extends StatelessWidget {
     );
   }
 
-  Widget _infoRow(BuildContext context, IconData icon, String label, String value) {
+  Widget _infoRow(
+    BuildContext context,
+    IconData icon,
+    String label,
+    String value,
+  ) {
     final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -619,7 +663,10 @@ class _PhotoDetailsSheet extends StatelessWidget {
                 ),
                 Text(
                   value,
-                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ],
             ),
@@ -643,14 +690,32 @@ class _FullImageState extends State<_FullImage> {
   String? _path;
   String? _error;
 
+  /// On mobile data the full photo waits for a tap (data saver).
+  bool _waiting = false;
+
   @override
   void initState() {
     super.initState();
+    _start();
+  }
+
+  Future<void> _start() async {
+    final local = widget.file.localPath;
+    if (!localExists(local) && !widget.drive.isDownloading(widget.file)) {
+      final status = await device.deviceStatus();
+      if (!status.unmetered) {
+        if (mounted) setState(() => _waiting = true);
+        return;
+      }
+    }
     _load();
   }
 
   Future<void> _load() async {
-    setState(() => _error = null);
+    setState(() {
+      _error = null;
+      _waiting = false;
+    });
     try {
       final path = await widget.drive.ensureLocal(widget.file);
       if (mounted) setState(() => _path = path);
@@ -700,6 +765,27 @@ class _FullImageState extends State<_FullImage> {
         ),
       );
     }
+    if (_waiting) {
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          FileThumb(
+            drive: widget.drive,
+            file: widget.file,
+            fit: BoxFit.contain,
+            fallback: const SizedBox.shrink(),
+          ),
+          Align(
+            alignment: const Alignment(0, 0.85),
+            child: FilledButton.tonalIcon(
+              icon: const Icon(Icons.hd_outlined),
+              label: Text('Load full photo · ${formatBytes(widget.file.size)}'),
+              onPressed: _load,
+            ),
+          ),
+        ],
+      );
+    }
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -722,7 +808,9 @@ class _FullImageState extends State<_FullImage> {
                     final p = widget.drive.downloads[widget.file.messageId];
                     return Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 18, vertical: 12),
+                        horizontal: 18,
+                        vertical: 12,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.black54,
                         borderRadius: BorderRadius.circular(24),

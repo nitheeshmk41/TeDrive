@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.0.3
+
+- Fixed: opening a photo or file could wait behind every thumbnail in the gallery and look stuck on "Loading full image…". Files you open now download first.
+- Data saver: on mobile data, photos show their preview and download in full only when you tap **Load full photo**. Photos either side are fetched ahead only on Wi-Fi.
+- Up to 3 uploads now run at the same time.
+- Downloading or sharing several selected files fetches 4 at a time behind one progress bar, and saves them all to one folder.
+- Sharing: **Send the file** comes first and works for everyone. Public links explain that some networks block the t.me website, and that the link opens when pasted into the Telegram app.
+- Android APKs download directly from tedrive.vercel.app/download/, avoiding the GitHub redirect some browsers leave stuck at 100%.
+- Web app: Wi-Fi transfer and the vault, which need a real file system, are hidden or explained instead of failing.
+
 ## v2.0.2
 
 - Fixed: sharing a file in the web app could stay on "Creating link…" forever.

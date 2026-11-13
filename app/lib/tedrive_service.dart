@@ -735,10 +735,24 @@ class TeDriveService {
   /// or it cannot be fetched right now.
   Future<String?> thumbnailPath(int thumbFileId) async {
     try {
-      return await download(thumbFileId);
+      return await download(thumbFileId, priority: 16);
     } catch (_) {
       return null;
     }
+  }
+
+  /// Moves a download already running to the front of the queue.
+  void raisePriority(int fileId) {
+    td
+        .request({
+          '@type': 'downloadFile',
+          'file_id': fileId,
+          'priority': 32,
+          'offset': 0,
+          'limit': 0,
+          'synchronous': false,
+        })
+        .then((_) {}, onError: (_) {});
   }
 
   /// blob: URLs of files downloaded in the browser, by file id.
@@ -747,12 +761,23 @@ class TeDriveService {
   /// Returns the local path of the file, downloading it from Telegram
   /// first if there is no complete copy on this phone. In the browser this
   /// is a blob: URL.
+  /// [priority] runs from 1 to 32; TDLib downloads higher numbers first.
+  /// Files the user opens use 32, thumbnails 16, so a photo never waits
+  /// behind a whole gallery of thumbnails.
   Future<String> download(
     int fileId, {
     Progress? onProgress,
     String? mime,
+    int priority = 32,
   }) async {
-    if (kIsWeb) return _webDownload(fileId, onProgress: onProgress, mime: mime);
+    if (kIsWeb) {
+      return _webDownload(
+        fileId,
+        onProgress: onProgress,
+        mime: mime,
+        priority: priority,
+      );
+    }
     var file = await td.request({'@type': 'getFile', 'file_id': fileId});
     final existing = _completePath(file);
     if (existing != null) return existing;
@@ -774,7 +799,7 @@ class TeDriveService {
       file = await td.request({
         '@type': 'downloadFile',
         'file_id': fileId,
-        'priority': 1,
+        'priority': priority,
         'offset': 0,
         'limit': 0,
         'synchronous': true,
@@ -791,6 +816,7 @@ class TeDriveService {
     int fileId, {
     Progress? onProgress,
     String? mime,
+    int priority = 32,
   }) async {
     final known = _webUrls[fileId];
     if (known != null) return known;
@@ -808,7 +834,7 @@ class TeDriveService {
       await td.request({
         '@type': 'downloadFile',
         'file_id': fileId,
-        'priority': 1,
+        'priority': priority,
         'offset': 0,
         'limit': 0,
         'synchronous': true,

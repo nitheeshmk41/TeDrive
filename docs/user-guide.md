@@ -7,7 +7,8 @@ Everything you add is a message in a private channel called **TeDrive Storage** 
 ## Photos
 
 - **Timeline** grouped by day, with **On this day** memories at the top.
-- Tap a photo to open it; pinch to zoom, swipe for the next one. On a computer use the arrow keys or the side buttons.
+- Tap a photo to open it. On mobile data only the preview loads; tap **Load full photo** for the original (data saver). On Wi-Fi the full photo loads by itself.
+- In the viewer, pinch to zoom and swipe for the next one. On a computer use the arrow keys or the side buttons.
 - **ⓘ Details** shows the date, size, camera and, if the photo has GPS data, a map of where it was taken.
 - **Map** view shows every photo that has a location. Locations are read from photos when they are uploaded.
 
@@ -26,7 +27,8 @@ Everything you add is a message in a private channel called **TeDrive Storage** 
 
 ## Sharing
 
-- **Share → Create link** copies the file into a public channel, **TeDrive Shared**, and gives a `t.me` link anyone can open without an account. Your other files stay private.
+- **Send the file** shares the file itself to WhatsApp, email or any app. It works for everyone.
+- **Copy / Share public link** copies the file into a public channel, **TeDrive Shared**, and gives a `t.me` link anyone can open without an account. Some networks block the t.me website; the link still opens when pasted into the Telegram app.
 - **Stop sharing** deletes the public copy, so the link stops working.
 - **Share album** makes one link for a whole folder.
 
@@ -40,7 +42,11 @@ The **Vault** is for documents such as Aadhaar, PAN or passport scans. Files are
 
 ## Wi-Fi transfer
 
-**Wi-Fi transfer** on the phone shows an address and a QR code. Open it on a laptop on the same Wi-Fi to download files from the phone directly, without the internet.
+In the Android or desktop app, **Wi-Fi transfer** shows an address and a QR code. On another phone or computer on the same Wi-Fi, open the address in a browser to download files from this device or send files to it; files sent to it are added to your drive. No internet data is used. The web app cannot do this, because browsers cannot accept connections.
+
+## Uploads and downloads
+
+Up to 3 files upload at the same time. Selecting several files and choosing Download or Share fetches 4 at a time.
 
 ## Updates
 
