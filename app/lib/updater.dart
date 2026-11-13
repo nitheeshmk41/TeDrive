@@ -44,8 +44,9 @@ Future<AppRelease?> fetchLatestRelease() async {
     req.headers.set('User-Agent', 'TeDrive-app');
     final res = await req.close();
     if (res.statusCode != 200) return null;
-    final json = jsonDecode(await res.transform(utf8.decoder).join())
-        as Map<String, dynamic>;
+    final json = jsonDecode(
+      await res.transform(utf8.decoder).join(),
+    ) as Map<String, dynamic>;
     return AppRelease(
       json['tag_name'] as String? ?? '',
       json['body'] as String? ?? '',
@@ -61,20 +62,64 @@ Future<AppRelease?> fetchLatestRelease() async {
   }
 }
 
+const _site = 'https://tedrive.vercel.app/download';
+
+/// The latest release according to the TeDrive site, used when GitHub's
+/// API refuses (it limits requests per network address).
+Future<AppRelease?> _fetchFromSite() async {
+  final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
+  try {
+    final res = await (await client.getUrl(Uri.parse('$_site/version.txt')))
+        .close();
+    if (res.statusCode != 200) return null;
+    final tag = (await res.transform(utf8.decoder).join()).trim();
+    if (!RegExp(r'^v\d').hasMatch(tag)) return null;
+    return AppRelease(tag, '', {
+      'TeDrive-android-arm64.apk': '$_site/TeDrive-android-arm64.apk',
+      'TeDrive-android-arm32.apk': '$_site/TeDrive-android-arm32.apk',
+    });
+  } catch (_) {
+    return null;
+  } finally {
+    client.close();
+  }
+}
+
+/// The newest release either source knows about.
+Future<AppRelease?> latestRelease() async {
+  final results = await Future.wait([fetchLatestRelease(), _fetchFromSite()]);
+  final github = results[0], site = results[1];
+  if (github == null) return site;
+  if (site != null && isNewer(site.tag, github.tag)) return site;
+  return github;
+}
+
 /// Checks once when the app starts and offers the update in a snack bar.
 Future<void> checkForUpdateQuietly(BuildContext context) async {
   if (kIsWeb) return;
-  final release = await fetchLatestRelease();
+  final release = await latestRelease();
   if (release == null || !isNewer(release.tag, appVersion)) return;
   if (!context.mounted) return;
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Text('TeDrive ${release.tag} is available'),
-      duration: const Duration(seconds: 8),
-      action: SnackBarAction(
-        label: 'Update',
-        onPressed: () => showUpdateDialog(context, release: release),
+  final messenger = ScaffoldMessenger.of(context);
+  messenger.showMaterialBanner(
+    MaterialBanner(
+      leading: const Icon(Icons.system_update_outlined),
+      content: Text(
+        'TeDrive ${release.tag} is available. You have v$appVersion.',
       ),
+      actions: [
+        TextButton(
+          onPressed: messenger.hideCurrentMaterialBanner,
+          child: const Text('Later'),
+        ),
+        FilledButton(
+          onPressed: () {
+            messenger.hideCurrentMaterialBanner();
+            showUpdateDialog(context, release: release);
+          },
+          child: const Text('Update'),
+        ),
+      ],
     ),
   );
 }
@@ -108,19 +153,18 @@ class _UpdateDialogState extends State<_UpdateDialog> {
     if (_release != null) {
       _checking = false;
     } else {
-      fetchLatestRelease().then((r) {
+      latestRelease().then((r) {
         if (!mounted) return;
         setState(() {
           _release = r;
           _checking = false;
-          if (r == null) _error = 'Could not reach GitHub. Check your connection.';
+          if (r == null) _error = 'Could not check. Check your connection.';
         });
       });
     }
   }
 
-  bool get _hasUpdate =>
-      _release != null && isNewer(_release!.tag, appVersion);
+  bool get _hasUpdate => _release != null && isNewer(_release!.tag, appVersion);
 
   Future<void> _install() async {
     final release = _release!;
@@ -163,7 +207,8 @@ class _UpdateDialogState extends State<_UpdateDialog> {
       if (mounted) {
         setState(() {
           _progress = null;
-          _error = 'Download failed. You can also get it from the releases page.';
+          _error =
+              'Download failed. You can also get it from the releases page.';
         });
       }
     } finally {
@@ -176,24 +221,37 @@ class _UpdateDialogState extends State<_UpdateDialog> {
     final theme = Theme.of(context);
     final Widget body;
     if (_checking) {
-      body = const Row(children: [
-        SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
-        SizedBox(width: 16),
-        Text('Checking for updates…'),
-      ]);
+      body = const Row(
+        children: [
+          SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          SizedBox(width: 16),
+          Text('Checking for updates…'),
+        ],
+      );
     } else if (_progress != null) {
-      body = Column(mainAxisSize: MainAxisSize.min, children: [
-        LinearProgressIndicator(value: _progress == 0 ? null : _progress),
-        const SizedBox(height: 12),
-        Text('Downloading ${_release!.tag}… ${((_progress ?? 0) * 100).round()}%'),
-      ]);
+      body = Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          LinearProgressIndicator(value: _progress == 0 ? null : _progress),
+          const SizedBox(height: 12),
+          Text(
+            'Downloading ${_release!.tag}… ${((_progress ?? 0) * 100).round()}%',
+          ),
+        ],
+      );
     } else if (_hasUpdate) {
       body = Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Version ${_release!.tag} is available. You have v$appVersion.',
-              style: theme.textTheme.bodyLarge),
+          Text(
+            'Version ${_release!.tag} is available. You have v$appVersion.',
+            style: theme.textTheme.bodyLarge,
+          ),
           const SizedBox(height: 8),
           Text(
             device.isAndroid
@@ -222,7 +280,9 @@ class _UpdateDialogState extends State<_UpdateDialog> {
         if (_hasUpdate && _progress == null)
           FilledButton(
             onPressed: _install,
-            child: Text(device.isAndroid ? 'Download and install' : 'Open download page'),
+            child: Text(
+              device.isAndroid ? 'Download and install' : 'Open download page',
+            ),
           ),
       ],
     );

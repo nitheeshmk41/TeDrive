@@ -13,7 +13,9 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 
 class VaultAuthException implements Exception {
-  const VaultAuthException([this.message = 'Incorrect passphrase or corrupted document']);
+  const VaultAuthException([
+    this.message = 'Incorrect passphrase or corrupted document',
+  ]);
   final String message;
   @override
   String toString() => message;
@@ -46,12 +48,12 @@ class VaultCipher {
   static Uint8List deriveKeys(String passphrase, Uint8List salt) {
     final passBytes = utf8.encode(passphrase);
     var hmac = Hmac(sha256, passBytes);
-    
+
     // Block 1
     final block1Input = Uint8List(salt.length + 4);
     block1Input.setRange(0, salt.length, salt);
     block1Input[salt.length + 3] = 1; // Counter 1 (big-endian)
-    
+
     var u = Uint8List.fromList(hmac.convert(block1Input).bytes);
     final keyPart1 = Uint8List.fromList(u);
     for (var i = 1; i < pbkdf2Iterations; i++) {
@@ -65,7 +67,7 @@ class VaultCipher {
     final block2Input = Uint8List(salt.length + 4);
     block2Input.setRange(0, salt.length, salt);
     block2Input[salt.length + 3] = 2; // Counter 2 (big-endian)
-    
+
     u = Uint8List.fromList(hmac.convert(block2Input).bytes);
     final keyPart2 = Uint8List.fromList(u);
     for (var i = 1; i < pbkdf2Iterations; i++) {
@@ -123,8 +125,11 @@ class VaultCipher {
   /// Throws [VaultAuthException] on password mismatch or tampering.
   static Uint8List decrypt(Uint8List encryptedData, String passphrase) {
     final magicBytes = utf8.encode(magic);
-    if (encryptedData.length < magicBytes.length + saltLength + ivLength + macLength) {
-      throw const VaultAuthException('File is not a valid encrypted vault document');
+    if (encryptedData.length <
+        magicBytes.length + saltLength + ivLength + macLength) {
+      throw const VaultAuthException(
+        'File is not a valid encrypted vault document',
+      );
     }
 
     for (var i = 0; i < magicBytes.length; i++) {

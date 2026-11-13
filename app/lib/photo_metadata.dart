@@ -4,9 +4,21 @@ import 'dart:io';
 
 import 'package:exif/exif.dart';
 
-typedef PhotoMetadata = ({({double lat, double lng})? location, String? camera});
+typedef PhotoMetadata = ({
+  ({double lat, double lng})? location,
+  String? camera,
+});
 
-const _photoExtensions = {'jpg', 'jpeg', 'heic', 'heif', 'tif', 'tiff', 'png', 'webp'};
+const _photoExtensions = {
+  'jpg',
+  'jpeg',
+  'heic',
+  'heif',
+  'tif',
+  'tiff',
+  'png',
+  'webp',
+};
 
 /// Returns the GPS position and camera model stored in a photo, if any.
 /// Only the start of the file is read: EXIF data sits at the front.
@@ -36,8 +48,10 @@ Future<PhotoMetadata> readPhotoMetadata(String path) async {
   final lat = _degrees(tags['GPS GPSLatitude']);
   final lng = _degrees(tags['GPS GPSLongitude']);
   if (lat == null || lng == null) return null;
-  final south = tags['GPS GPSLatitudeRef']?.printable.trim().toUpperCase() == 'S';
-  final west = tags['GPS GPSLongitudeRef']?.printable.trim().toUpperCase() == 'W';
+  final south =
+      tags['GPS GPSLatitudeRef']?.printable.trim().toUpperCase() == 'S';
+  final west =
+      tags['GPS GPSLongitudeRef']?.printable.trim().toUpperCase() == 'W';
   final la = south ? -lat : lat;
   final ln = west ? -lng : lng;
   // 0,0 is what many phones write when they had no fix.

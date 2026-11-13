@@ -8,7 +8,6 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:flutter/services.dart';
 
-import '../device.dart' as device;
 import '../drive_controller.dart';
 import '../local_files.dart';
 import '../stored_file.dart';
@@ -333,7 +332,8 @@ class _ImageViewerPageState extends State<ImageViewerPage> {
   /// Starts downloading the photos either side, so swiping is instant.
   /// Only on Wi-Fi: on mobile data nothing downloads unless asked for.
   Future<void> _prefetch(int i) async {
-    if (!(await device.deviceStatus()).unmetered) return;
+    // Nothing is fetched ahead: originals download only when asked for.
+    if (i >= 0) return;
     for (final n in [i + 1, i - 1]) {
       if (n < 0 || n >= widget.files.length) continue;
       final f = widget.files[n];
@@ -702,11 +702,8 @@ class _FullImageState extends State<_FullImage> {
   Future<void> _start() async {
     final local = widget.file.localPath;
     if (!localExists(local) && !widget.drive.isDownloading(widget.file)) {
-      final status = await device.deviceStatus();
-      if (!status.unmetered) {
-        if (mounted) setState(() => _waiting = true);
-        return;
-      }
+      if (mounted) setState(() => _waiting = true);
+      return;
     }
     _load();
   }
@@ -779,7 +776,7 @@ class _FullImageState extends State<_FullImage> {
             alignment: const Alignment(0, 0.85),
             child: FilledButton.tonalIcon(
               icon: const Icon(Icons.hd_outlined),
-              label: Text('Load full photo · ${formatBytes(widget.file.size)}'),
+              label: Text('Load original · ${formatBytes(widget.file.size)}'),
               onPressed: _load,
             ),
           ),

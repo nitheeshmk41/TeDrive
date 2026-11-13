@@ -458,7 +458,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _copyShareLink(StoredFile original) async {
     final link = await _ensureShareLink(original);
     if (link == null) return;
-    await Clipboard.setData(ClipboardData(text: link));
+    await Clipboard.setData(ClipboardData(text: friendlyShareLink(link)));
     _toast('Link copied');
   }
 
@@ -467,16 +467,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (link == null) return;
     if (kIsWeb) {
       // The click has expired by now, so the browser would refuse to share.
-      await Clipboard.setData(ClipboardData(text: link));
+      await Clipboard.setData(ClipboardData(text: friendlyShareLink(link)));
       _toast('Link copied. Paste it into any chat.');
       return;
     }
     await SharePlus.instance.share(
       ShareParams(
-        text:
-            '${_latest(original).name}\n$link\n\n'
-            'Opens in Telegram. If your browser cannot open it, paste the '
-            'link into the Telegram app.',
+        text: '${_latest(original).name}\n${friendlyShareLink(link)}',
       ),
     );
   }
@@ -518,9 +515,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
                   child: Text(
-                    'Public link: opens in Telegram. Some networks block '
-                    'the t.me website; the link still opens when pasted '
-                    'into the Telegram app.',
+                    'Public link: opens a TeDrive page with a button '
+                    'that shows the file in Telegram.',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ),

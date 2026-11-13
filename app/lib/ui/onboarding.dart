@@ -889,7 +889,10 @@ class _CountrySheetState extends State<_CountrySheet> {
                   return Padding(
                     padding: const EdgeInsets.only(right: 8),
                     child: ActionChip(
-                      avatar: Text(c.flag, style: const TextStyle(fontSize: 16)),
+                      avatar: Text(
+                        c.flag,
+                        style: const TextStyle(fontSize: 16),
+                      ),
                       label: Text('${c.iso} +${c.code}'),
                       onPressed: () => Navigator.pop(context, c),
                     ),
@@ -911,9 +914,15 @@ class _CountrySheetState extends State<_CountrySheet> {
                     c.name,
                     style: const TextStyle(fontWeight: FontWeight.w500),
                   ),
-                  subtitle: Text(c.iso, style: TextStyle(color: scheme.onSurfaceVariant)),
+                  subtitle: Text(
+                    c.iso,
+                    style: TextStyle(color: scheme.onSurfaceVariant),
+                  ),
                   trailing: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: scheme.surfaceContainerHighest,
                       borderRadius: BorderRadius.circular(8),

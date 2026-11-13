@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.0.5
+
+- Photo viewer: opening a photo shows its preview at once and downloads nothing. **Load original** fetches the full-quality file only when you ask.
+- Share links now open a TeDrive page with an **Open in Telegram app** button, because the t.me website is blocked on some networks.
+- Updates: a banner with an **Update** button stays on screen when a new version exists, and the check also works when GitHub cannot be reached.
+
 ## v2.0.4
 
 - Fixed: full photos (and any download) could stay on "Loading…" forever, on the web and on phones. Downloads now follow Telegram's progress updates, restart a download that goes quiet, and show **Try again** if it still cannot finish.

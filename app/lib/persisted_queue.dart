@@ -46,7 +46,9 @@ class QueuedUploadItem {
       name: name,
       size: size,
       folder: json['folder'] as String?,
-      taken: takenMs != null ? DateTime.fromMillisecondsSinceEpoch(takenMs) : null,
+      taken: takenMs != null
+          ? DateTime.fromMillisecondsSinceEpoch(takenMs)
+          : null,
       knownSha: json['sha'] as String?,
       isVault: json['vault'] == true,
     );

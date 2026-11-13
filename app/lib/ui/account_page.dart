@@ -73,9 +73,9 @@ class _AccountPageState extends State<AccountPage> {
       await AppLockService.instance.setPin(pin);
       if (mounted) {
         setState(() => _appLockEnabled = true);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('App Lock PIN enabled')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('App Lock PIN enabled')));
       }
     }
   }
@@ -314,7 +314,10 @@ class _AccountPageState extends State<AccountPage> {
                     ),
                   ),
                   const SizedBox(height: 24),
-                  Text('Security and privacy', style: theme.textTheme.titleMedium),
+                  Text(
+                    'Security and privacy',
+                    style: theme.textTheme.titleMedium,
+                  ),
                   const SizedBox(height: 8),
                   Card(
                     clipBehavior: Clip.antiAlias,
@@ -334,7 +337,8 @@ class _AccountPageState extends State<AccountPage> {
                               await _setupPin();
                             } else {
                               await AppLockService.instance.disable();
-                              if (mounted) setState(() => _appLockEnabled = false);
+                              if (mounted)
+                                setState(() => _appLockEnabled = false);
                             }
                           },
                         ),
@@ -351,10 +355,15 @@ class _AccountPageState extends State<AccountPage> {
                                 ? const SizedBox.shrink()
                                 : SwitchListTile(
                                     secondary: const Icon(Icons.fingerprint),
-                                    title: const Text('Unlock with fingerprint'),
-                                    value: AppLockService.instance.biometricEnabled,
+                                    title: const Text(
+                                      'Unlock with fingerprint',
+                                    ),
+                                    value: AppLockService
+                                        .instance
+                                        .biometricEnabled,
                                     onChanged: (on) async {
-                                      await AppLockService.instance.setBiometric(on);
+                                      await AppLockService.instance
+                                          .setBiometric(on);
                                       if (mounted) setState(() {});
                                     },
                                   ),

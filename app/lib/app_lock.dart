@@ -68,7 +68,8 @@ class AppLockService {
   /// Whether this device can unlock with a fingerprint or face.
   Future<bool> canUseBiometric() async {
     try {
-      return await _auth.isDeviceSupported() && await _auth.deviceSupportsBiometrics();
+      return await _auth.isDeviceSupported() &&
+          await _auth.deviceSupportsBiometrics();
     } catch (_) {
       return false;
     }
@@ -235,15 +236,16 @@ class _AppLockScreenState extends State<AppLockScreen> {
                 const SizedBox(height: 16),
                 Text(
                   widget.title,
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: Theme.of(context).textTheme.titleLarge
+                      ?.copyWith(fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 6),
                 Text(
                   _error ?? widget.subtitle,
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: _error != null ? scheme.error : scheme.onSurfaceVariant,
+                    color: _error != null
+                        ? scheme.error
+                        : scheme.onSurfaceVariant,
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -261,10 +263,7 @@ class _AppLockScreenState extends State<AppLockScreen> {
                           color: i < _pin.length
                               ? scheme.primary
                               : scheme.surfaceContainerHighest,
-                          border: Border.all(
-                            color: scheme.outline,
-                            width: 1.5,
-                          ),
+                          border: Border.all(color: scheme.outline, width: 1.5),
                         ),
                       ),
                   ],
@@ -290,7 +289,10 @@ class _AppLockScreenState extends State<AppLockScreen> {
                             child: AppLockService.instance.biometricEnabled
                                 ? IconButton(
                                     tooltip: 'Use fingerprint',
-                                    icon: const Icon(Icons.fingerprint, size: 32),
+                                    icon: const Icon(
+                                      Icons.fingerprint,
+                                      size: 32,
+                                    ),
                                     onPressed: _biometric,
                                   )
                                 : null,

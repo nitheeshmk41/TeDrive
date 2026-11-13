@@ -17,12 +17,14 @@ class WifiTransferService {
   String? _ipAddress;
   int _port = 8080;
   final List<File> _receivedFiles = [];
-  final StreamController<File> _onFileReceived = StreamController<File>.broadcast();
+  final StreamController<File> _onFileReceived =
+      StreamController<File>.broadcast();
 
   bool get isRunning => _server != null;
   String? get ipAddress => _ipAddress;
   int get port => _port;
-  String? get serverUrl => _ipAddress != null ? 'http://$_ipAddress:$_port' : null;
+  String? get serverUrl =>
+      _ipAddress != null ? 'http://$_ipAddress:$_port' : null;
   Stream<File> get onFileReceived => _onFileReceived.stream;
   List<File> get receivedFiles => List.unmodifiable(_receivedFiles);
 
@@ -58,7 +60,7 @@ class WifiTransferService {
     if (_server != null) await stopServer();
 
     _ipAddress = await findLocalIp();
-    
+
     // Bind to any available port starting at 8080
     var p = 8080;
     while (_server == null && p < 8090) {
@@ -106,18 +108,21 @@ class WifiTransferService {
     HttpRequest request,
     List<({String name, int size, String path})> files,
   ) {
-    final rows = files.map((f) {
-      final safeName = htmlEscape.convert(f.name);
-      final sizeMb = (f.size / (1024 * 1024)).toStringAsFixed(1);
-      final encodedPath = Uri.encodeComponent(f.path);
-      return '<tr>'
-          '<td><strong>$safeName</strong></td>'
-          '<td>$sizeMb MB</td>'
-          '<td><a class="btn" href="/download?file=$encodedPath" download="$safeName">Download</a></td>'
-          '</tr>';
-    }).join('\n');
+    final rows = files
+        .map((f) {
+          final safeName = htmlEscape.convert(f.name);
+          final sizeMb = (f.size / (1024 * 1024)).toStringAsFixed(1);
+          final encodedPath = Uri.encodeComponent(f.path);
+          return '<tr>'
+              '<td><strong>$safeName</strong></td>'
+              '<td>$sizeMb MB</td>'
+              '<td><a class="btn" href="/download?file=$encodedPath" download="$safeName">Download</a></td>'
+              '</tr>';
+        })
+        .join('\n');
 
-    final html = '''
+    final html =
+        '''
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -231,12 +236,19 @@ class WifiTransferService {
         final partData = all.sublist(partStart, nextB);
         final headerEnd = _findBytes(partData, [13, 10, 13, 10], 0);
         if (headerEnd != -1) {
-          final headerText = utf8.decode(partData.sublist(0, headerEnd), allowMalformed: true);
+          final headerText = utf8.decode(
+            partData.sublist(0, headerEnd),
+            allowMalformed: true,
+          );
           final match = RegExp(r'filename="([^"]+)"').firstMatch(headerText);
-          final filename = match?.group(1) ?? 'upload_${DateTime.now().millisecondsSinceEpoch}';
+          final filename =
+              match?.group(1) ??
+              'upload_${DateTime.now().millisecondsSinceEpoch}';
           final bodyStart = headerEnd + 4;
           var bodyEnd = partData.length;
-          if (bodyEnd >= 2 && partData[bodyEnd - 2] == 13 && partData[bodyEnd - 1] == 10) {
+          if (bodyEnd >= 2 &&
+              partData[bodyEnd - 2] == 13 &&
+              partData[bodyEnd - 1] == 10) {
             bodyEnd -= 2;
           }
           if (bodyEnd > bodyStart) {
@@ -260,7 +272,9 @@ class WifiTransferService {
     request.response
       ..statusCode = HttpStatus.ok
       ..headers.contentType = ContentType.html
-      ..write('<html><body><h3>Upload complete!</h3><a href="/">Back to transfer</a></body></html>');
+      ..write(
+        '<html><body><h3>Upload complete!</h3><a href="/">Back to transfer</a></body></html>',
+      );
     await request.response.close();
   }
 
