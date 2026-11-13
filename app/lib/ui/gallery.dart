@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -316,14 +317,42 @@ class _ImageViewerPageState extends State<ImageViewerPage> {
   late int _index = widget.initialIndex;
 
   @override
+  void initState() {
+    super.initState();
+    _prefetch(_index);
+  }
+
+  @override
   void dispose() {
     _pages.dispose();
     super.dispose();
   }
 
+  /// Starts downloading the photos either side, so swiping is instant.
+  void _prefetch(int i) {
+    for (final n in [i + 1, i - 1]) {
+      if (n < 0 || n >= widget.files.length) continue;
+      final f = widget.files[n];
+      if (f.kind == FileKind.image && !widget.drive.isDownloading(f)) {
+        widget.drive.ensureLocal(f).then((_) {}, onError: (_) {});
+      }
+    }
+  }
+
+  void _go(int delta) {
+    final next = _index + delta;
+    if (next < 0 || next >= widget.files.length) return;
+    _pages.animateToPage(
+      next,
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOut,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final file = widget.files[_index];
+    final wide = MediaQuery.sizeOf(context).width >= 700;
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -361,14 +390,50 @@ class _ImageViewerPageState extends State<ImageViewerPage> {
           ),
         ],
       ),
-      body: PageView.builder(
-        controller: _pages,
-        itemCount: widget.files.length,
-        onPageChanged: (i) => setState(() => _index = i),
-        itemBuilder: (context, i) => _FullImage(
-          key: ValueKey(widget.files[i].messageId),
-          drive: widget.drive,
-          file: widget.files[i],
+      body: CallbackShortcuts(
+        bindings: {
+          const SingleActivator(LogicalKeyboardKey.arrowRight): () => _go(1),
+          const SingleActivator(LogicalKeyboardKey.arrowLeft): () => _go(-1),
+          const SingleActivator(LogicalKeyboardKey.escape): () =>
+              Navigator.maybePop(context),
+        },
+        child: Focus(
+          autofocus: true,
+          child: Stack(
+            children: [
+              PageView.builder(
+                controller: _pages,
+                itemCount: widget.files.length,
+                onPageChanged: (i) {
+                  setState(() => _index = i);
+                  _prefetch(i);
+                },
+                itemBuilder: (context, i) => _FullImage(
+                  key: ValueKey(widget.files[i].messageId),
+                  drive: widget.drive,
+                  file: widget.files[i],
+                ),
+              ),
+              if (wide && _index > 0)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: _NavButton(
+                    icon: Icons.chevron_left,
+                    tooltip: 'Previous',
+                    onPressed: () => _go(-1),
+                  ),
+                ),
+              if (wide && _index < widget.files.length - 1)
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: _NavButton(
+                    icon: Icons.chevron_right,
+                    tooltip: 'Next',
+                    onPressed: () => _go(1),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -610,6 +675,14 @@ class _FullImageState extends State<_FullImage> {
             path,
             fit: BoxFit.contain,
             gaplessPlayback: true,
+            filterQuality: FilterQuality.high,
+            frameBuilder: (context, child, frame, sync) => sync
+                ? child
+                : AnimatedOpacity(
+                    opacity: frame == null ? 0 : 1,
+                    duration: const Duration(milliseconds: 250),
+                    child: child,
+                  ),
             errorBuilder: (_, _, _) => const Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -630,21 +703,52 @@ class _FullImageState extends State<_FullImage> {
     return Stack(
       fit: StackFit.expand,
       children: [
-        // The small preview fills in while the full image downloads.
-        FileThumb(
-          drive: widget.drive,
-          file: widget.file,
-          fit: BoxFit.contain,
-          fallback: const SizedBox.shrink(),
+        // The small preview fills in, softly blurred, while the full image
+        // downloads, so it does not look pixelated.
+        ImageFiltered(
+          imageFilter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+          child: FileThumb(
+            drive: widget.drive,
+            file: widget.file,
+            fit: BoxFit.contain,
+            fallback: const SizedBox.shrink(),
+          ),
         ),
         Center(
           child: _error == null
               ? ListenableBuilder(
                   listenable: widget.drive,
-                  builder: (context, _) => CircularProgressIndicator(
-                    value: widget.drive.downloads[widget.file.messageId],
-                    color: Colors.white,
-                  ),
+                  builder: (context, _) {
+                    final p = widget.drive.downloads[widget.file.messageId];
+                    return Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 18, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.black54,
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox.square(
+                            dimension: 20,
+                            child: CircularProgressIndicator(
+                              value: p,
+                              strokeWidth: 2.5,
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Text(
+                            p == null
+                                ? 'Loading full image…'
+                                : 'Loading ${(p * 100).round()}%',
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
                 )
               : Column(
                   mainAxisSize: MainAxisSize.min,
@@ -678,6 +782,8 @@ Widget localImage(
   BoxFit? fit,
   int? cacheWidth,
   bool gaplessPlayback = false,
+  FilterQuality filterQuality = FilterQuality.medium,
+  ImageFrameBuilder? frameBuilder,
   ImageErrorWidgetBuilder? errorBuilder,
 }) => kIsWeb
     ? Image.network(
@@ -685,6 +791,8 @@ Widget localImage(
         fit: fit,
         cacheWidth: cacheWidth,
         gaplessPlayback: gaplessPlayback,
+        filterQuality: filterQuality,
+        frameBuilder: frameBuilder,
         errorBuilder: errorBuilder,
       )
     : Image.file(
@@ -692,5 +800,33 @@ Widget localImage(
         fit: fit,
         cacheWidth: cacheWidth,
         gaplessPlayback: gaplessPlayback,
+        filterQuality: filterQuality,
+        frameBuilder: frameBuilder,
         errorBuilder: errorBuilder,
       );
+
+class _NavButton extends StatelessWidget {
+  const _NavButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+  });
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.all(12),
+    child: IconButton.filledTonal(
+      tooltip: tooltip,
+      iconSize: 32,
+      style: IconButton.styleFrom(
+        backgroundColor: Colors.black45,
+        foregroundColor: Colors.white,
+      ),
+      icon: Icon(icon),
+      onPressed: onPressed,
+    ),
+  );
+}

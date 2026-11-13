@@ -385,8 +385,18 @@ class TeDriveService {
     int? tempMessageId;
     int? fileId;
     final done = Completer<Json>();
+    // The web build can deliver the "sent" update before sendMessage
+    // returns the temporary id, so results are kept until the id is known.
+    final early = <int, Json>{};
     final sub = td.updates.listen((u) {
-      switch (u['@type']) {
+      final type = u['@type'];
+      if ((type == 'updateMessageSendSucceeded' ||
+              type == 'updateMessageSendFailed') &&
+          tempMessageId == null) {
+        early[u['old_message_id'] as int] = u;
+        return;
+      }
+      switch (type) {
         case 'updateFile':
           final file = u['file'] as Json;
           if (file['id'] == fileId) {
@@ -425,6 +435,19 @@ class TeDriveService {
       });
       tempMessageId = pending['id'] as int;
       fileId = StoredFile.fromMessage(pending)?.fileId;
+      // Sent at once (a file already in Telegram): no update will follow.
+      if (pending['sending_state'] == null) return pending;
+      final missed = early[tempMessageId];
+      if (missed != null) {
+        if (missed['@type'] == 'updateMessageSendSucceeded') {
+          return missed['message'] as Json;
+        }
+        final error = missed['error'] as Json?;
+        throw TdError(
+          (error?['code'] ?? 0) as int,
+          (error?['message'] ?? 'send failed') as String,
+        );
+      }
       onStarted?.call(tempMessageId);
       return await done.future;
     } finally {

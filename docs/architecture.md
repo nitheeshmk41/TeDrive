@@ -29,11 +29,17 @@ Each file's message caption holds one `key:value` per line:
 | Key | Meaning |
 | :--- | :--- |
 | `sha256` | Fingerprint of the file's bytes |
-| `folder` | Album name |
+| `folder` | Folder or album path, `/` separated for nested folders |
 | `time` | When the photo or video was taken (seconds since 1970) |
 | `device` | Device that uploaded it |
 | `name` | Custom name after a rename |
 | `share` | Public link, if shared |
+| `albumshare` | Public link for a whole album |
+| `star` | Starred |
+| `trash` | When it was moved to Trash (deleted for good after 30 days) |
+| `geo` | Where a photo was taken (from its EXIF data) |
+| `camera` | Camera model (from EXIF) |
+| `vault` | The file is encrypted on the device before upload |
 
 Reading the channel history rebuilds the whole drive on any device. Changes made on one device reach the others as Telegram updates. Parsing lives in `app/lib/stored_file.dart` and is unit-tested.
 
@@ -52,9 +58,13 @@ Reading the channel history rebuilds the whole drive on any device. Changes made
 ## Limits that follow from the design
 
 - No server means no accounts other than Telegram, no link passwords or expiry, no access logs and no bot inbox. These are out of scope, not postponed.
-- Files are not end-to-end encrypted (ordinary Telegram cloud messages) until the encrypted vault exists.
+- Ordinary files are Telegram cloud messages, not end-to-end encrypted. Files in the Vault are encrypted on the device with a passphrase that never leaves it; forget it and they cannot be recovered.
 - Telegram is not a contracted storage service.
 
 ## Builds
 
-`.github/workflows/release.yml` builds all platforms and compiles TDLib from source for desktop. `tdweb.yml` compiles TDLib to WebAssembly once and publishes it as a release asset, which the web build downloads (`app/tool/fetch_tdweb.sh`).
+`.github/workflows/release.yml` builds all platforms on every push to `main`, and publishes a GitHub release when a `v*` tag is pushed. It compiles TDLib from source for desktop. `tdweb.yml` compiles TDLib to WebAssembly once and publishes it as a release asset, which the web build downloads (`app/tool/fetch_tdweb.sh`).
+
+## Updates
+
+The app asks the GitHub API for the latest release (`app/lib/updater.dart`). On Android it downloads the APK for the phone's processor and opens the system installer. Because every release APK is signed with the same key, it installs over the old version and keeps all data. A release built without the signing secrets would not install over an existing copy, so the workflow warns when they are missing.

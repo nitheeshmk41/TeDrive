@@ -1,130 +1,84 @@
 <div align="center">
 
-<img src="app/assets/icon/app_icon.png" alt="TeDrive Logo" width="160" height="160">
+<img src="app/assets/icon/app_icon.png" alt="TeDrive logo" width="140" height="140">
 
 # TeDrive
 
-### **Your personal unlimited cloud, powered by your Telegram account.**
+**A personal cloud drive and photo library that stores everything in your own Telegram account.**
 
-A full-featured personal cloud drive and photo library that keeps your files securely in your own private Telegram channel.<br>
-**Zero monthly fees. Zero third-party cloud servers. Nothing to host or maintain.**
+No subscription. No TeDrive server. Your files stay in a private channel only you can see.
 
-[**Download v2.0.1**](https://github.com/nitheeshmk41/TeDrive/releases) · [**Launch Web App**](https://tedrive.vercel.app) · [**How it works**](#how-it-works)
+[**Download**](https://github.com/nitheeshmk41/TeDrive/releases/latest) · [**Open the web app**](https://tedrive.vercel.app) · [**Install guide**](docs/install.md) · [**User guide**](docs/user-guide.md)
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Android-Ready-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Android Ready" />
-  <img src="https://img.shields.io/badge/Windows-v1--beta-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Windows v2.0.1" />
-  <img src="https://img.shields.io/badge/Web-Live-1677F0?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Web Live" />
-  <img src="https://img.shields.io/badge/Linux-v1--beta-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Linux v2.0.1" />
-  <img src="https://img.shields.io/badge/macOS-v1--beta-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS v2.0.1" />
-  <img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="MIT License" />
-</p>
+<img src="https://img.shields.io/github/v/release/nitheeshmk41/TeDrive?style=for-the-badge&label=release" alt="Latest release" />
+<img src="https://img.shields.io/badge/Android%20%C2%B7%20Windows%20%C2%B7%20macOS%20%C2%B7%20Linux%20%C2%B7%20Web-555?style=for-the-badge" alt="Platforms" />
+<img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="MIT License" />
 
 </div>
 
 ---
 
-## ✨ Why TeDrive?
+## Why TeDrive
 
-Phones run out of storage fast, and traditional cloud subscriptions charge you month after month. Telegram already provides free, unlimited cloud storage for files up to **2 GB each** (or 4 GB with Telegram Premium).
+Phones fill up, and cloud plans charge every month. Telegram already stores files up to 2 GB each for free. TeDrive turns that storage into a real drive: a photo timeline, folders, phone backup and sharing, on every device you own.
 
-**TeDrive transforms that storage into a polished, modern cloud drive**:
-- **Native photo & video gallery** organized chronologically.
-- **Instant mobile link copying & sharing**: copy a direct download link to clipboard with one tap or share it via WhatsApp and messaging apps without re-downloading gigabytes of data.
-- **Smart background backup** with Wi-Fi only mode and automatic duplicate detection.
-- **"Free up space"**: safely delete local media once Telegram confirms an identical SHA-256 fingerprint is backed up.
-- **Cross-platform real-time sync**: see and access your files instantly on Android, Windows, Web, Linux, and macOS.
+## Features
 
----
-
-## 🚀 Key Features
-
-| Feature | Description |
+| | |
 | :--- | :--- |
-| 🔗 **1-Tap Mobile Link Copy & Share** | Copy public Telegram links directly to your clipboard or send via messaging apps without downloading huge files first. |
-| 📸 **Automatic Phone Backup** | Seamlessly backs up camera photos, screenshots, and WhatsApp media in the background (configurable Wi-Fi and charging filters). |
-| 🧹 **Safe Space Reclaim** | Reclaim phone memory with confidence: removes local files only after cryptographic SHA-256 checksum verification. |
-| 🖼️ **Full Media Gallery** | Timeline view grouped day-by-day and month-by-month, albums, quick search, category filters, and sorting. |
-| ▶️ **Fast Streaming Previews** | High-performance viewer with pinch-to-zoom for photos and instant streaming playback for videos and music. |
-| 🔒 **Private by Design** | Files are stored in your own private `TeDrive Storage` channel. Only files you explicitly share are posted to a public link. |
-| 📥 **System Integration** | On Android, TeDrive integrates into the Android Share Sheet and the system file picker. |
-| 💻 **Universal Access** | Sign in once with your phone number on any device (phone, desktop, browser) and get full real-time access. |
+| 📸 **Photo library** | Day-by-day timeline, "On this day" memories, a map of where photos were taken, EXIF details |
+| 📁 **Drive** | Nested folders, multi-select, starred, recent, large files, duplicates, Trash with 30-day restore |
+| 🔄 **Phone backup** | Background backup of chosen albums (Wi-Fi or charging only), then **Free up space** safely |
+| 🔗 **Sharing** | Public links for a file or a whole album, without re-uploading |
+| 🔐 **Vault** | Documents encrypted on your device before upload; even Telegram cannot read them |
+| 🔒 **App lock** | PIN or fingerprint |
+| 📶 **Wi-Fi transfer** | Phone to laptop over local Wi-Fi with a QR code |
+| ⬆️ **Updates** | Check for updates in the app; new versions install over the old one |
+| 💻 **Everywhere** | Android, Windows, macOS, Linux and the browser, all in sync |
 
----
+## Download
 
-## 📦 Downloads (v2.0.1)
+| Platform | File |
+| :--- | :--- |
+| Android (most phones) | `TeDrive-…-android-arm64.apk` |
+| Android (old 32-bit phones) | `TeDrive-…-android-arm32.apk` |
+| Windows 10/11 | `TeDrive-…-windows-x64.zip` |
+| macOS (Apple Silicon) | `TeDrive-…-macos-arm64.dmg` |
+| Linux x64 | `TeDrive-…-linux-x64.tar.gz` |
+| Browser | [tedrive.vercel.app](https://tedrive.vercel.app) |
 
-Download pre-built binaries from the [**GitHub v2.0.1 Release**](https://github.com/nitheeshmk41/TeDrive/releases/tag/v2.0.1):
+All files are on the [latest release](https://github.com/nitheeshmk41/TeDrive/releases/latest). Step-by-step instructions, including what to do if a download stops at 100%, are in the [install guide](docs/install.md).
 
-| Platform | Download Package | Notes |
-| :--- | :--- | :--- |
-| **Android (Phone/Tablet)** | [**TeDrive-v2.0.1-android-arm64.apk**](https://github.com/nitheeshmk41/TeDrive/releases/download/v2.0.1/TeDrive-v2.0.1-android-arm64.apk) | Recommended for modern Android phones (ARM64) |
-| **Android (32-bit)** | [**TeDrive-v2.0.1-android-arm32.apk**](https://github.com/nitheeshmk41/TeDrive/releases/download/v2.0.1/TeDrive-v2.0.1-android-arm32.apk) | For older 32-bit Android devices |
-| **Windows** | [**TeDrive-v2.0.1-windows-x64.zip**](https://github.com/nitheeshmk41/TeDrive/releases/download/v2.0.1/TeDrive-v2.0.1-windows-x64.zip) | Windows 10 & 11 (Extract and run `TeDrive.exe`) |
-| **Web App** | [**Launch tedrive.vercel.app**](https://tedrive.vercel.app) | Runs TDLib directly in browser via WebAssembly |
-| **Linux** | [**TeDrive-v2.0.1-linux-x64.tar.gz**](https://github.com/nitheeshmk41/TeDrive/releases/download/v2.0.1/TeDrive-v2.0.1-linux-x64.tar.gz) | Ubuntu 22.04+, Debian, Fedora (Run `TeDrive/tedrive`) |
-| **macOS** | [**TeDrive-v2.0.1-macos-arm64.dmg**](https://github.com/nitheeshmk41/TeDrive/releases/download/v2.0.1/TeDrive-v2.0.1-macos-arm64.dmg) | Apple Silicon. Open, drag to Applications; right-click → Open the first time |
+## Quick start
 
----
+1. Get a free API ID and hash at [my.telegram.org](https://my.telegram.org) → **API development tools**.
+2. Open TeDrive, paste them, and sign in with your phone number.
+3. Sign in with the same number on your other devices to see the same files.
 
-## ⚡ Quick Start (2 Minutes)
-
-All you need is a Telegram account and a free Telegram API credential pair:
-
-1. Visit [**my.telegram.org**](https://my.telegram.org) and sign in with your Telegram phone number.
-2. Click **API development tools**.
-3. Create an app (set title/short name to `TeDrive`).
-4. Copy your **App api_id** and **App api_hash**.
-5. Launch TeDrive, paste your `api_id` and `api_hash`, and verify with the login code sent to your Telegram app.
-
-> **Tip**: Sign in with the exact same phone number across your phones, tablets, PCs, and web browsers to instantly access your synced drive!
-
----
-
-## 🛠️ Architecture & Security
+## How it works
 
 ```
- 📱 Android Phone ──┐
- 💻 Windows/Mac/Linux ┼──► Official TDLib ──► Telegram Cloud ──► "TeDrive Storage" (Private Channel)
- 🌐 Web (WASM) ─────┘                                       └──► "TeDrive Shared"  (Public Links)
+Android · Windows · macOS · Linux · Web
+                │
+          TDLib (Telegram's official library)
+                │
+Telegram ──► "TeDrive Storage"  private channel, one message per file
+         └─► "TeDrive Shared"   public copies of files you share
 ```
 
-- **Official TDLib Engine**: TeDrive communicates with Telegram using TDLib (Telegram Database Library) compiled natively with C++/FFI on mobile and desktop, and WebAssembly (`tdweb`) on the web.
-- **Zero Intermediary Servers**: All data travels strictly between your client device and Telegram's official cloud servers. TeDrive operates with no proprietary backend, no tracking, and no telemetry.
-- **Self-Healing Metadata**: File metadata (checksums, albums, creation timestamps, device names) are embedded cleanly into message captions. If you ever switch devices or reinstall the app, your entire cloud drive reconstructs itself automatically from Telegram.
-- **Local Credential Storage**: On Android, your session and encryption keys are safeguarded in the hardware-backed Android Keystore.
+File details (fingerprint, folder, date, location) are kept in each message's caption, so the whole drive rebuilds itself on any device. More in [docs/architecture.md](docs/architecture.md).
 
----
+## Documentation
 
-## 💻 Development
+- [Install and update](docs/install.md)
+- [User guide](docs/user-guide.md)
+- [Building from source and releasing](docs/building.md)
+- [Architecture](docs/architecture.md)
+- [Changelog](CHANGELOG.md)
+- [Contributing](CONTRIBUTING.md)
 
-TeDrive is built with Flutter and Dart.
+## License
 
-```bash
-cd app
-flutter pub get
-flutter run          # Runs on connected Android device or desktop
-dart test            # Runs full test suite
-```
+[MIT](LICENSE). TeDrive is an independent project that uses the Telegram API. It is not affiliated with or endorsed by Telegram.
 
-### Directory Structure
-
-```
-app/
-├── lib/
-│   ├── td/                 # TDLib FFI bindings (Mobile/Desktop) & WebAssembly bridge (Web)
-│   ├── tedrive_service.dart# Authentication, uploads, downloads, channel management
-│   ├── drive_controller.dart# Drive file tree, streaming, upload queue, live sync
-│   ├── backup_controller.dart # Automated phone media backups & space manager
-│   ├── stored_file.dart    # File model & caption metadata serialization
-│   └── ui/                 # Responsive Flutter UI (Mobile, Tablet, Desktop)
-└── android/                # Android native foreground services & content providers
-```
-
----
-
-## 📄 License
-
-This project is licensed under the [MIT License](LICENSE).
-
-*Disclaimer: TeDrive is an independent open-source project that utilizes the official Telegram API. It is not affiliated with, sponsored by, or endorsed by Telegram FZ-LLC.*
+> Keep a second copy of anything irreplaceable. Telegram is not a contracted storage service.

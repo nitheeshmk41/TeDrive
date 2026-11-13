@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.0.2
+
+- Fixed: sharing a file in the web app could stay on "Creating link…" forever.
+- Photo viewer: a soft blurred preview instead of a pixelated one while the full image loads, a sharper full image, the next and previous photos load in advance, and arrow keys and buttons on computers.
+- New documentation in `docs/` (install, user guide, building, architecture), `CONTRIBUTING.md` and a rewritten README. Removed outdated planning notes.
+
 ## v2.0.1
 
 - Windows and macOS builds fixed (fingerprint unlock is now Android and Mac only; macOS builds with the current Xcode).
