@@ -1,5 +1,13 @@
 # Changelog
 
+## v3.0.1
+
+- Fixed: opening the original of a large photo could close the app. Photos are now decoded at screen size instead of full resolution.
+- Fixed: a download that Telegram paused for a moment was reported as stopped. Only Cancel stops a download now, and slow connections get about 3 minutes before an error.
+- While you open, send or load a file, new uploads wait, so the download gets the whole connection.
+- Previews that failed to load are tried again.
+- **Account → Copy error log** copies recent errors, to report a problem. The log stays on the device.
+
 ## v3.0.0
 
 ### Changed

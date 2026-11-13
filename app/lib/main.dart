@@ -4,6 +4,7 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
+import 'error_log.dart';
 import 'provider_bridge.dart';
 import 'td/td_client.dart' show TdLibraryMissing;
 import 'tedrive_service.dart';
@@ -15,6 +16,7 @@ final service = TeDriveService();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  installErrorLog();
   // Lets Android's file picker fetch files even with no screen showing.
   registerProviderBridge(service);
   try {

@@ -6,7 +6,11 @@ import '../device.dart' as device;
 import '../drive_controller.dart';
 import '../stored_file.dart';
 import '../tedrive_service.dart';
+
+import 'package:flutter/services.dart';
+
 import '../config.dart';
+import '../error_log.dart';
 import '../updater.dart';
 
 /// Who is signed in, what the drive holds, and how much of it is kept on
@@ -382,6 +386,34 @@ class _AccountPageState extends State<AccountPage> {
                           subtitle: const Text('Version $appVersion'),
                           onTap: widget.onAbout,
                         ),
+                        if (!kIsWeb)
+                          ListTile(
+                            leading: const Icon(Icons.bug_report_outlined),
+                            title: const Text('Copy error log'),
+                            subtitle: const Text(
+                              'To report a problem. Stays on this device.',
+                            ),
+                            onTap: () async {
+                              final log = await readErrorLog();
+                              await Clipboard.setData(
+                                ClipboardData(
+                                  text: log.isEmpty
+                                      ? 'TeDrive v$appVersion: no errors logged'
+                                      : 'TeDrive v$appVersion\n$log',
+                                ),
+                              );
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    log.isEmpty
+                                        ? 'No errors have been logged'
+                                        : 'Error log copied',
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
                         if (!kIsWeb)
                           ListTile(
                             leading: const Icon(Icons.system_update_outlined),

@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'local_files.dart';
 import 'media_server.dart';
+import 'error_log.dart';
 import 'persisted_queue.dart';
 import 'photo_metadata.dart';
 import 'picker_catalogue.dart';
@@ -183,6 +184,7 @@ class DriveController extends ChangeNotifier {
   /// which is much faster for many small photos than one after another.
   static const parallelUploads = 3;
   int _activeUploads = 0;
+  int _foregroundDownloads = 0;
   bool _disposed = false;
 
   int get totalBytes => files.fold(0, (sum, f) => sum + f.size);
@@ -444,7 +446,12 @@ class DriveController extends ChangeNotifier {
     return _thumbnails[file.messageId] ??= _service.thumbnailPath(id).then((
       path,
     ) {
-      if (path != null) _thumbPaths[file.messageId] = path;
+      if (path != null) {
+        _thumbPaths[file.messageId] = path;
+      } else {
+        // Failed (slow network): let the next view of it try again.
+        _thumbnails.remove(file.messageId);
+      }
       return path;
     });
   }
@@ -555,6 +562,9 @@ class DriveController extends ChangeNotifier {
   /// Starts queued uploads, oldest first, up to [parallelUploads] at once.
   void _pump() {
     if (_chatId == null) return;
+    // A file the user is waiting for gets the whole connection: new
+    // uploads start once it has arrived.
+    if (_foregroundDownloads > 0) return;
     while (!_disposed && _activeUploads < parallelUploads) {
       UploadTask? next;
       for (final t in uploads.reversed) {
@@ -853,6 +863,7 @@ class DriveController extends ChangeNotifier {
     final id = file.messageId;
     downloads[id] = null;
     _notify();
+    if (!background) _foregroundDownloads++;
     try {
       final path = await _service.download(
         file.fileId,
@@ -869,10 +880,12 @@ class DriveController extends ChangeNotifier {
       return path;
     } catch (e) {
       if (_cancelledDownloads.remove(id)) throw DownloadCancelled();
+      logError('download ${file.name} (${file.size} bytes)', e);
       rethrow;
     } finally {
       downloads.remove(id);
       _cancelledDownloads.remove(id);
+      if (!background && --_foregroundDownloads == 0) _pump();
       _notify();
     }
   }

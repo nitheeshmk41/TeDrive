@@ -18,6 +18,7 @@ import '../app_lock.dart';
 import '../backup_controller.dart';
 import '../device.dart' as device;
 import '../drive_controller.dart';
+import '../error_log.dart';
 import '../stored_file.dart';
 import '../local_files.dart';
 import '../td/web_bridge.dart';
@@ -154,7 +155,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       await action();
     } on DownloadCancelled {
       // The user asked for this.
-    } catch (e) {
+    } catch (e, stack) {
+      logError('action', e, stack);
       _toast(e is StateError ? e.message : '$e');
     }
   }
@@ -182,7 +184,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     } on DownloadCancelled {
       return null;
     } catch (e) {
-      _toast('Could not download ${file.name}: $e');
+      _toast(
+        e is StateError ? e.message : 'Could not download ${file.name}: $e',
+      );
       return null;
     } finally {
       if (dialogOpen && mounted) {

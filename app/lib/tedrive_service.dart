@@ -773,8 +773,10 @@ class TeDriveService {
     bool complete(Json f) =>
         (f['local'] as Json)['is_downloading_completed'] == true;
     final done = Completer<Json>();
+    _downloadWaiters[fileId] = done;
+    // Cancelled before anyone waits on it: not an uncaught error.
+    done.future.ignore();
     var lastActivity = DateTime.now();
-    var started = false;
     var nudges = 0;
     final sub = td.updates.listen((u) {
       if (u['@type'] != 'updateFile') return;
@@ -785,12 +787,6 @@ class TeDriveService {
       onProgress?.call(local['downloaded_size'] as int, fileSize(f));
       if (complete(f)) {
         done.complete(f);
-      } else if (started &&
-          local['is_downloading_active'] == false &&
-          local['can_be_downloaded'] == true &&
-          nudges == 0) {
-        // Stopped without finishing: cancelled by the user.
-        done.completeError(const DownloadStopped());
       }
     });
     Future<Json> request() => td.request({
@@ -804,7 +800,7 @@ class TeDriveService {
     final watchdog = Timer.periodic(const Duration(seconds: 5), (_) async {
       if (done.isCompleted) return;
       if (DateTime.now().difference(lastActivity) <
-          const Duration(seconds: 20)) {
+          const Duration(seconds: 30)) {
         return;
       }
       lastActivity = DateTime.now();
@@ -812,7 +808,7 @@ class TeDriveService {
         final f = await td.request({'@type': 'getFile', 'file_id': fileId});
         if (done.isCompleted) return;
         if (complete(f)) return done.complete(f);
-        if (++nudges > 3) {
+        if (++nudges > 5) {
           return done.completeError(
             StateError(
               'The download is not making progress. Check your connection '
@@ -826,11 +822,11 @@ class TeDriveService {
     try {
       final first = await request();
       if (complete(first)) return first;
-      started = true;
       return await done.future;
     } finally {
       watchdog.cancel();
       await sub.cancel();
+      if (_downloadWaiters[fileId] == done) _downloadWaiters.remove(fileId);
     }
   }
 
@@ -901,11 +897,21 @@ class TeDriveService {
           await td.request({'@type': 'getFile', 'file_id': fileId}),
         );
 
-  Future<void> cancelDownload(int fileId) => td.request({
-    '@type': 'cancelDownloadFile',
-    'file_id': fileId,
-    'only_if_pending': false,
-  });
+  Future<void> cancelDownload(int fileId) async {
+    // TDLib pauses downloads on its own too (no network, a busier queue),
+    // so only this call counts as the user stopping one.
+    final waiter = _downloadWaiters.remove(fileId);
+    if (waiter != null && !waiter.isCompleted) {
+      waiter.completeError(const DownloadStopped());
+    }
+    await td.request({
+      '@type': 'cancelDownloadFile',
+      'file_id': fileId,
+      'only_if_pending': false,
+    });
+  }
+
+  final Map<int, Completer<Json>> _downloadWaiters = {};
 
   /// Bytes used by copies TeDrive has downloaded to this device, or null
   /// where that cannot be measured (in a browser).

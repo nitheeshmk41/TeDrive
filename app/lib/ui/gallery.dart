@@ -708,6 +708,14 @@ class _FullImageState extends State<_FullImage> {
     _load();
   }
 
+  /// Enough pixels to stay sharp when zoomed, without decoding a huge
+  /// photo at full size.
+  static int _decodeWidth(BuildContext context) {
+    final media = MediaQuery.of(context);
+    final px = media.size.longestSide * media.devicePixelRatio * 1.5;
+    return px.clamp(1280, 3072).round();
+  }
+
   Future<void> _load() async {
     setState(() {
       _error = null;
@@ -737,7 +745,8 @@ class _FullImageState extends State<_FullImage> {
             path,
             fit: BoxFit.contain,
             gaplessPlayback: true,
-            filterQuality: FilterQuality.high,
+            filterQuality: FilterQuality.medium,
+            cacheWidth: _decodeWidth(context),
             frameBuilder: (context, child, frame, sync) => sync
                 ? child
                 : AnimatedOpacity(
