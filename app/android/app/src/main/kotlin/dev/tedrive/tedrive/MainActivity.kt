@@ -20,7 +20,7 @@ import android.os.Build
 import android.provider.MediaStore
 import android.util.Size
 import androidx.core.content.FileProvider
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.FlutterEngineCache
 import io.flutter.plugin.common.MethodCall
@@ -30,7 +30,7 @@ import java.io.FileOutputStream
 import kotlin.concurrent.thread
 import kotlin.math.max
 
-class MainActivity : FlutterActivity() {
+class MainActivity : FlutterFragmentActivity() {
     private var pendingPermission: MethodChannel.Result? = null
     private var pendingDelete: MethodChannel.Result? = null
     private var pendingDeleteCount = 0

@@ -72,4 +72,6 @@ flutter {
 dependencies {
     // FileProvider, used to hand files to other apps.
     implementation("androidx.core:core-ktx:1.15.0")
+    // AppCompat themes, needed by the fingerprint prompt on older Android.
+    implementation("androidx.appcompat:appcompat:1.7.0")
 }

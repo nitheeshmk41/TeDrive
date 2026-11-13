@@ -9,14 +9,14 @@
 A full-featured personal cloud drive and photo library that keeps your files securely in your own private Telegram channel.<br>
 **Zero monthly fees. Zero third-party cloud servers. Nothing to host or maintain.**
 
-[**Download v1-beta**](https://github.com/nitheeshmk41/TeDrive/releases) · [**Launch Web App**](https://tedrive.vercel.app) · [**How it works**](#how-it-works)
+[**Download v2.0.0**](https://github.com/nitheeshmk41/TeDrive/releases) · [**Launch Web App**](https://tedrive.vercel.app) · [**How it works**](#how-it-works)
 
 <p align="center">
   <img src="https://img.shields.io/badge/Android-Ready-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Android Ready" />
-  <img src="https://img.shields.io/badge/Windows-v1--beta-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Windows v1-beta" />
+  <img src="https://img.shields.io/badge/Windows-v1--beta-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Windows v2.0.0" />
   <img src="https://img.shields.io/badge/Web-Live-1677F0?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Web Live" />
-  <img src="https://img.shields.io/badge/Linux-v1--beta-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Linux v1-beta" />
-  <img src="https://img.shields.io/badge/macOS-v1--beta-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS v1-beta" />
+  <img src="https://img.shields.io/badge/Linux-v1--beta-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Linux v2.0.0" />
+  <img src="https://img.shields.io/badge/macOS-v1--beta-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS v2.0.0" />
   <img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="MIT License" />
 </p>
 
@@ -52,18 +52,18 @@ Phones run out of storage fast, and traditional cloud subscriptions charge you m
 
 ---
 
-## 📦 Downloads (v1-beta)
+## 📦 Downloads (v2.0.0)
 
-Download pre-built binaries from the [**GitHub v1-beta Release**](https://github.com/nitheeshmk41/TeDrive/releases/tag/v1-beta):
+Download pre-built binaries from the [**GitHub v2.0.0 Release**](https://github.com/nitheeshmk41/TeDrive/releases/tag/v2.0.0):
 
 | Platform | Download Package | Notes |
 | :--- | :--- | :--- |
-| **Android (Phone/Tablet)** | [**TeDrive-v1-beta-android-arm64.apk**](https://github.com/nitheeshmk41/TeDrive/releases/download/v1-beta/TeDrive-v1-beta-android-arm64.apk) | Recommended for modern Android phones (ARM64) |
-| **Android (32-bit)** | [**TeDrive-v1-beta-android-arm32.apk**](https://github.com/nitheeshmk41/TeDrive/releases/download/v1-beta/TeDrive-v1-beta-android-arm32.apk) | For older 32-bit Android devices |
-| **Windows** | [**TeDrive-v1-beta-windows-x64.zip**](https://github.com/nitheeshmk41/TeDrive/releases/download/v1-beta/TeDrive-v1-beta-windows-x64.zip) | Windows 10 & 11 (Extract and run `TeDrive.exe`) |
+| **Android (Phone/Tablet)** | [**TeDrive-v2.0.0-android-arm64.apk**](https://github.com/nitheeshmk41/TeDrive/releases/download/v2.0.0/TeDrive-v2.0.0-android-arm64.apk) | Recommended for modern Android phones (ARM64) |
+| **Android (32-bit)** | [**TeDrive-v2.0.0-android-arm32.apk**](https://github.com/nitheeshmk41/TeDrive/releases/download/v2.0.0/TeDrive-v2.0.0-android-arm32.apk) | For older 32-bit Android devices |
+| **Windows** | [**TeDrive-v2.0.0-windows-x64.zip**](https://github.com/nitheeshmk41/TeDrive/releases/download/v2.0.0/TeDrive-v2.0.0-windows-x64.zip) | Windows 10 & 11 (Extract and run `TeDrive.exe`) |
 | **Web App** | [**Launch tedrive.vercel.app**](https://tedrive.vercel.app) | Runs TDLib directly in browser via WebAssembly |
-| **Linux** | [**TeDrive-v1-beta-linux-x64.tar.gz**](https://github.com/nitheeshmk41/TeDrive/releases/download/v1-beta/TeDrive-v1-beta-linux-x64.tar.gz) | Ubuntu 22.04+, Debian, Fedora (Run `TeDrive/tedrive`) |
-| **macOS** | [**TeDrive-v1-beta-macos-arm64.zip**](https://github.com/nitheeshmk41/TeDrive/releases/download/v1-beta/TeDrive-v1-beta-macos-arm64.zip) | Apple Silicon (M1/M2/M3/M4) |
+| **Linux** | [**TeDrive-v2.0.0-linux-x64.tar.gz**](https://github.com/nitheeshmk41/TeDrive/releases/download/v2.0.0/TeDrive-v2.0.0-linux-x64.tar.gz) | Ubuntu 22.04+, Debian, Fedora (Run `TeDrive/tedrive`) |
+| **macOS** | [**TeDrive-v2.0.0-macos-arm64.dmg**](https://github.com/nitheeshmk41/TeDrive/releases/download/v2.0.0/TeDrive-v2.0.0-macos-arm64.dmg) | Apple Silicon. Open, drag to Applications; right-click → Open the first time |
 
 ---
 

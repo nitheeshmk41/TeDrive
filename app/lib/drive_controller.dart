@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'local_files.dart';
 import 'media_server.dart';
 import 'persisted_queue.dart';
+import 'photo_metadata.dart';
 import 'picker_catalogue.dart';
 import 'stored_file.dart';
 import 'td/td_client.dart' show TdError;
@@ -83,10 +84,10 @@ class UploadTask {
   final bool isVault;
 
   /// Geotag location (latitude, longitude).
-  final ({double lat, double lng})? location;
+  ({double lat, double lng})? location;
 
   /// Camera make/model.
-  final String? camera;
+  String? camera;
 
   /// The file's SHA-256, set once it has been computed.
   String? sha;
@@ -665,6 +666,11 @@ class DriveController extends ChangeNotifier {
       }
       task.progress = null;
       _notify();
+      if (!task.isVault && task.location == null) {
+        final meta = await readPhotoMetadata(path);
+        task.location = meta.location;
+        task.camera ??= meta.camera;
+      }
       final sha = task.knownSha ?? await sha256OfFile(path);
       task.sha = sha;
       if (task._cancelRequested) throw UploadCancelled();

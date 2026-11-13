@@ -8,6 +8,7 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:local_auth/local_auth.dart';
 
 class AppLockService {
   AppLockService._();
@@ -16,6 +17,14 @@ class AppLockService {
   static const _pinHashKey = 'tedrive_app_lock_pin_hash';
   static const _pinSaltKey = 'tedrive_app_lock_pin_salt';
   static const _storage = FlutterSecureStorage();
+
+  static const _bioKey = 'tedrive_app_lock_biometric';
+  final _auth = LocalAuthentication();
+  bool _biometric = false;
+  DateTime? _pausedAt;
+
+  /// Fingerprint or face unlock, on top of the PIN.
+  bool get biometricEnabled => _biometric;
 
   bool _isUnlocked = false;
   bool _isConfigured = false;
@@ -27,6 +36,7 @@ class AppLockService {
     try {
       final hash = await _storage.read(key: _pinHashKey);
       _isConfigured = hash != null && hash.isNotEmpty;
+      _biometric = await _storage.read(key: _bioKey) == 'true';
     } catch (_) {
       _isConfigured = false;
     }
@@ -34,6 +44,51 @@ class AppLockService {
 
   void lock() {
     _isUnlocked = false;
+  }
+
+  /// Called when the app goes to the background. Opening the file picker or
+  /// share sheet also does this, so the lock waits a little before closing.
+  void onPaused() => _pausedAt ??= DateTime.now();
+
+  /// Called when the app comes back. Returns true if it locked.
+  bool onResumed() {
+    final since = _pausedAt;
+    _pausedAt = null;
+    if (!_isConfigured || since == null) return false;
+    if (DateTime.now().difference(since) < const Duration(seconds: 30)) {
+      return false;
+    }
+    lock();
+    return true;
+  }
+
+  /// Whether this device can unlock with a fingerprint or face.
+  Future<bool> canUseBiometric() async {
+    try {
+      return await _auth.isDeviceSupported() && await _auth.canCheckBiometrics;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> setBiometric(bool on) async {
+    _biometric = on;
+    await _storage.write(key: _bioKey, value: on.toString());
+  }
+
+  /// Shows the system fingerprint prompt. Unlocks on success.
+  Future<bool> unlockWithBiometric() async {
+    if (!_biometric) return false;
+    try {
+      final ok = await _auth.authenticate(
+        localizedReason: 'Unlock TeDrive',
+        biometricOnly: true,
+      );
+      if (ok) _isUnlocked = true;
+      return ok;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<bool> verifyPin(String enteredPin) async {
@@ -68,6 +123,8 @@ class AppLockService {
   Future<void> disable() async {
     await _storage.delete(key: _pinHashKey);
     await _storage.delete(key: _pinSaltKey);
+    await _storage.delete(key: _bioKey);
+    _biometric = false;
     _isConfigured = false;
     _isUnlocked = true;
   }
@@ -109,6 +166,20 @@ class _AppLockScreenState extends State<AppLockScreen> {
   String _pin = '';
   String? _error;
   bool _verifying = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (AppLockService.instance.biometricEnabled) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _biometric());
+    }
+  }
+
+  Future<void> _biometric() async {
+    if (await AppLockService.instance.unlockWithBiometric() && mounted) {
+      widget.onSuccess();
+    }
+  }
 
   void _onDigit(String digit) {
     if (_pin.length >= 4 || _verifying) return;
@@ -209,7 +280,17 @@ class _AppLockScreenState extends State<AppLockScreen> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
-                          const SizedBox(width: 72, height: 72),
+                          SizedBox(
+                            width: 72,
+                            height: 72,
+                            child: AppLockService.instance.biometricEnabled
+                                ? IconButton(
+                                    tooltip: 'Use fingerprint',
+                                    icon: const Icon(Icons.fingerprint, size: 32),
+                                    onPressed: _biometric,
+                                  )
+                                : null,
+                          ),
                           _digitButton('0'),
                           SizedBox(
                             width: 72,

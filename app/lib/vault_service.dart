@@ -1,8 +1,9 @@
 // Encrypted Vault: on-device end-to-end encryption for sensitive documents
 // like Aadhaar, PAN, Passport, Certificates and private papers.
 //
-// Files are encrypted before upload using authenticated AES-256-CTR with
-// PBKDF2-HMAC-SHA256 key derivation. Telegram only ever stores ciphertext.
+// Files are encrypted before upload with an HMAC-SHA256 counter-mode stream
+// cipher, authenticated with HMAC-SHA256 (encrypt-then-MAC), keys from
+// PBKDF2-HMAC-SHA256. Telegram only ever stores ciphertext.
 
 import 'dart:convert';
 import 'dart:io';

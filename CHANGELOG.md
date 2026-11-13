@@ -1,5 +1,21 @@
 # Changelog
 
+## v2.0.0
+
+### Added
+- **Check for updates** (Account page, plus a quiet check on launch). On Android it downloads the new APK and opens the system installer, which installs over the old version: sign-in, files and settings are kept. On desktop it opens the download page.
+- Fingerprint or face unlock for App Lock.
+- Real OpenStreetMap map of where photos were taken, on the Map view and in photo details.
+- Drag and drop files onto the desktop window to upload them.
+- Version number shown under About.
+
+### Fixed
+- Photo map and details never showed a location: GPS and camera model are now read from each photo's EXIF data at upload.
+- The Wi-Fi transfer QR code was a decorative pattern no phone could scan. It is now a real QR code.
+- App Lock re-locked every time the file picker or share sheet opened. It now locks after 30 seconds in the background.
+- The macOS .dmg was never built (unsupported build flag). It is now part of the release.
+- The vault description wrongly said AES; it is an HMAC-SHA256 stream cipher with encrypt-then-MAC.
+
 ## v2-beta
 
 - Nested folders with breadcrumb navigation and recursive subfolder browsing.

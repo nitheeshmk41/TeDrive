@@ -1,7 +1,11 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -18,6 +22,7 @@ import '../local_files.dart';
 import '../td/web_bridge.dart';
 import '../tedrive_service.dart';
 import '../vault_service.dart';
+import '../updater.dart';
 import '../wifi_transfer.dart';
 import 'account_page.dart';
 import 'backup_page.dart';
@@ -79,6 +84,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // Keep the app light: downloaded copies are a cache, not storage.
       _drive.trimCache(_cacheLimitBytes).catchError((_) {});
       _takeSharedFiles();
+      checkForUpdateQuietly(context);
     });
     device.onSharedFiles(_takeSharedFiles);
   }
@@ -89,13 +95,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) {
-      if (AppLockService.instance.isConfigured) {
-        AppLockService.instance.lock();
-        if (mounted) setState(() {});
-      }
+      AppLockService.instance.onPaused();
       return;
     }
     if (state != AppLifecycleState.resumed) return;
+    if (AppLockService.instance.onResumed() && mounted) setState(() {});
     if (_hasBackup) _backup.onResume();
     _takeSharedFiles();
   }
@@ -1044,6 +1048,82 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (_appLockInitialized && !AppLockService.instance.isUnlocked) {
       return AppLockScreen(onSuccess: () => setState(() {}));
     }
+    final home = _buildHome(context);
+    if (!device.isDesktop) return home;
+    // On a computer, files dragged onto the window are uploaded.
+    return DropTarget(
+      onDragEntered: (_) => setState(() => _dragging = true),
+      onDragExited: (_) => setState(() => _dragging = false),
+      onDragDone: (details) {
+        setState(() => _dragging = false);
+        _uploadDropped(details.files.map((f) => f.path).toList());
+      },
+      child: Stack(
+        children: [
+          home,
+          if (_dragging)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: Container(
+                  margin: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .primaryContainer
+                        .withValues(alpha: 0.85),
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(
+                      color: Theme.of(context).colorScheme.primary,
+                      width: 3,
+                    ),
+                  ),
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.cloud_upload_outlined,
+                            size: 72,
+                            color: Theme.of(context).colorScheme.primary),
+                        const SizedBox(height: 12),
+                        Text('Drop files to upload',
+                            style: Theme.of(context).textTheme.headlineSmall),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  bool _dragging = false;
+
+  void _uploadDropped(List<String> paths) {
+    final files = [
+      for (final p in paths)
+        if (FileSystemEntity.isFileSync(p)) File(p),
+    ];
+    if (files.isEmpty) {
+      _toast('Drop files, not folders');
+      return;
+    }
+    for (final file in files) {
+      _drive.enqueuePath(
+        file.path,
+        name: file.uri.pathSegments.last,
+        size: file.lengthSync(),
+        taken: file.lastModifiedSync(),
+        fromBackup: false,
+      );
+    }
+    _toast(files.length == 1
+        ? 'Uploading ${files.first.uri.pathSegments.last}'
+        : 'Uploading ${files.length} files');
+  }
+
+  Widget _buildHome(BuildContext context) {
     return ListenableBuilder(
       listenable: _drive,
       builder: (context, _) => LayoutBuilder(
@@ -3118,8 +3198,10 @@ class _WifiTransferSheetState extends State<_WifiTransferSheet> {
                     ),
                   ],
                 ),
-                child: CustomPaint(
-                  painter: _QrCanvasPainter(_url!),
+                child: QrImageView(
+                  data: _url!,
+                  backgroundColor: Colors.white,
+                  padding: EdgeInsets.zero,
                 ),
               ),
               const SizedBox(height: 12),
@@ -3180,49 +3262,6 @@ class _WifiTransferSheetState extends State<_WifiTransferSheet> {
   }
 }
 
-class _QrCanvasPainter extends CustomPainter {
-  const _QrCanvasPainter(this.data);
-  final String data;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()..color = Colors.black;
-    final step = size.width / 21;
-
-    void drawSquare(double r, double c, double count) {
-      canvas.drawRect(
-          Rect.fromLTWH(c * step, r * step, count * step, count * step), paint);
-    }
-
-    void drawFinder(double r, double c) {
-      drawSquare(r, c, 7);
-      final whitePaint = Paint()..color = Colors.white;
-      canvas.drawRect(Rect.fromLTWH((c + 1) * step, (r + 1) * step, 5 * step,
-          5 * step), whitePaint);
-      drawSquare(r + 2, c + 2, 3);
-    }
-
-    drawFinder(0, 0);
-    drawFinder(0, 14);
-    drawFinder(14, 0);
-
-    final hash = data.hashCode.abs();
-    for (var r = 0; r < 21; r++) {
-      for (var c = 0; c < 21; c++) {
-        if ((r < 8 && c < 8) || (r < 8 && c >= 13) || (r >= 13 && c < 8)) {
-          continue;
-        }
-        if (((hash ^ (r * 31 + c * 17)) % 3) == 0) {
-          drawSquare(r.toDouble(), c.toDouble(), 1);
-        }
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-
 class _PhotoMapView extends StatelessWidget {
   const _PhotoMapView({
     required this.drive,
@@ -3237,51 +3276,24 @@ class _PhotoMapView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
 
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            height: 180,
-            width: double.infinity,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              color: scheme.surfaceContainerHighest,
-              border: Border.all(color: scheme.outlineVariant),
+          Text(
+            '${files.length} photos with a location',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.bold,
             ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 320,
             child: ClipRRect(
               borderRadius: BorderRadius.circular(16),
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  CustomPaint(
-                    size: const Size(double.infinity, 180),
-                    painter: _WorldMapGridPainter(scheme: scheme),
-                  ),
-                  Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.location_on, color: scheme.primary, size: 36),
-                      const SizedBox(height: 6),
-                      Text(
-                        '${files.length} Geotagged Photos',
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      Text(
-                        'Taken at GPS coordinates recorded in photos',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+              child: PhotoMap(files: files, drive: drive, onOpen: onOpen),
             ),
           ),
           const SizedBox(height: 16),
@@ -3322,23 +3334,85 @@ class _PhotoMapView extends StatelessWidget {
   }
 }
 
-class _WorldMapGridPainter extends CustomPainter {
-  const _WorldMapGridPainter({required this.scheme});
-  final ColorScheme scheme;
+/// An OpenStreetMap map with a photo pin for each geotagged file.
+class PhotoMap extends StatelessWidget {
+  const PhotoMap({
+    super.key,
+    required this.files,
+    required this.drive,
+    required this.onOpen,
+    this.zoom,
+  });
+
+  final List<StoredFile> files;
+  final DriveController drive;
+  final void Function(StoredFile) onOpen;
+  final double? zoom;
 
   @override
-  void paint(Canvas canvas, Size size) {
-    final grid = Paint()
-      ..color = scheme.outlineVariant.withValues(alpha: 0.2)
-      ..strokeWidth = 1;
-    for (var x = 0.0; x < size.width; x += 32) {
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), grid);
-    }
-    for (var y = 0.0; y < size.height; y += 32) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), grid);
-    }
+  Widget build(BuildContext context) {
+    final points = [
+      for (final f in files)
+        if (f.location != null) LatLng(f.location!.lat, f.location!.lng),
+    ];
+    if (points.isEmpty) return const SizedBox.shrink();
+    final single = points.length == 1 ||
+        points.every((p) => p == points.first);
+    return FlutterMap(
+      options: MapOptions(
+        initialCenter: points.first,
+        initialZoom: zoom ?? 12,
+        initialCameraFit: single
+            ? null
+            : CameraFit.coordinates(
+                coordinates: points,
+                padding: const EdgeInsets.all(40),
+                maxZoom: 15,
+              ),
+      ),
+      children: [
+        TileLayer(
+          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+          userAgentPackageName: 'dev.tedrive.tedrive',
+        ),
+        MarkerLayer(
+          markers: [
+            for (final f in files)
+              if (f.location != null)
+                Marker(
+                  point: LatLng(f.location!.lat, f.location!.lng),
+                  width: 44,
+                  height: 44,
+                  child: GestureDetector(
+                    onTap: () => onOpen(f),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.white, width: 2),
+                        borderRadius: BorderRadius.circular(8),
+                        boxShadow: const [
+                          BoxShadow(color: Colors.black38, blurRadius: 4),
+                        ],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(6),
+                        child: FileThumb(
+                          drive: drive,
+                          file: f,
+                          fallback: const ColoredBox(
+                            color: Colors.white,
+                            child: Icon(Icons.photo, size: 20),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+          ],
+        ),
+        const SimpleAttributionWidget(
+          source: Text('OpenStreetMap contributors'),
+        ),
+      ],
+    );
   }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

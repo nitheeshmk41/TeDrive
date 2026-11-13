@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:flutter/services.dart';
 
 import '../drive_controller.dart';
@@ -474,46 +476,35 @@ class _PhotoDetailsSheet extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 12),
-              // Visual mini map container
-              Container(
-                height: 160,
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  color: scheme.surfaceContainerHighest,
-                  border: Border.all(color: scheme.outlineVariant),
-                ),
+              SizedBox(
+                height: 180,
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(16),
-                  child: Stack(
-                    alignment: Alignment.center,
+                  child: FlutterMap(
+                    options: MapOptions(
+                      initialCenter: LatLng(loc.lat, loc.lng),
+                      initialZoom: 14,
+                    ),
                     children: [
-                      // Stylized Map background grid
-                      CustomPaint(
-                        size: const Size(double.infinity, 160),
-                        painter: _MapGridPainter(scheme: scheme),
+                      TileLayer(
+                        urlTemplate:
+                            'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                        userAgentPackageName: 'dev.tedrive.tedrive',
                       ),
-                      Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.location_pin, color: scheme.error, size: 40),
-                          const SizedBox(height: 4),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: scheme.surface.withValues(alpha: 0.85),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              'GPS: ${loc.lat.toStringAsFixed(5)}, ${loc.lng.toStringAsFixed(5)}',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                                color: scheme.onSurface,
-                              ),
-                            ),
+                      MarkerLayer(
+                        markers: [
+                          Marker(
+                            point: LatLng(loc.lat, loc.lng),
+                            width: 40,
+                            height: 40,
+                            alignment: Alignment.topCenter,
+                            child: Icon(Icons.location_pin,
+                                color: scheme.error, size: 40),
                           ),
                         ],
+                      ),
+                      const SimpleAttributionWidget(
+                        source: Text('OpenStreetMap contributors'),
                       ),
                     ],
                   ),
@@ -572,36 +563,6 @@ class _PhotoDetailsSheet extends StatelessWidget {
       ),
     );
   }
-}
-
-class _MapGridPainter extends CustomPainter {
-  const _MapGridPainter({required this.scheme});
-  final ColorScheme scheme;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final roadPaint = Paint()
-      ..color = scheme.outlineVariant.withValues(alpha: 0.4)
-      ..strokeWidth = 3;
-    final gridPaint = Paint()
-      ..color = scheme.outlineVariant.withValues(alpha: 0.15)
-      ..strokeWidth = 1;
-
-    // Draw grid lines
-    for (var x = 0.0; x < size.width; x += 30) {
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), gridPaint);
-    }
-    for (var y = 0.0; y < size.height; y += 30) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
-    }
-
-    // Stylized roads
-    canvas.drawLine(Offset(0, size.height * 0.45), Offset(size.width, size.height * 0.65), roadPaint);
-    canvas.drawLine(Offset(size.width * 0.3, 0), Offset(size.width * 0.6, size.height), roadPaint);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _FullImage extends StatefulWidget {

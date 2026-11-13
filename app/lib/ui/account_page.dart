@@ -6,6 +6,8 @@ import '../device.dart' as device;
 import '../drive_controller.dart';
 import '../stored_file.dart';
 import '../tedrive_service.dart';
+import '../config.dart';
+import '../updater.dart';
 
 /// Who is signed in, what the drive holds, and how much of it is kept on
 /// this device.
@@ -342,6 +344,21 @@ class _AccountPageState extends State<AccountPage> {
                             title: const Text('Change PIN'),
                             onTap: _setupPin,
                           ),
+                        if (_appLockEnabled)
+                          FutureBuilder<bool>(
+                            future: AppLockService.instance.canUseBiometric(),
+                            builder: (context, snap) => snap.data != true
+                                ? const SizedBox.shrink()
+                                : SwitchListTile(
+                                    secondary: const Icon(Icons.fingerprint),
+                                    title: const Text('Unlock with fingerprint'),
+                                    value: AppLockService.instance.biometricEnabled,
+                                    onChanged: (on) async {
+                                      await AppLockService.instance.setBiometric(on);
+                                      if (mounted) setState(() {});
+                                    },
+                                  ),
+                          ),
                       ],
                     ),
                   ),
@@ -353,8 +370,15 @@ class _AccountPageState extends State<AccountPage> {
                         ListTile(
                           leading: const Icon(Icons.info_outline),
                           title: const Text('About TeDrive'),
+                          subtitle: const Text('Version $appVersion'),
                           onTap: widget.onAbout,
                         ),
+                        if (!kIsWeb)
+                          ListTile(
+                            leading: const Icon(Icons.system_update_outlined),
+                            title: const Text('Check for updates'),
+                            onTap: () => showUpdateDialog(context),
+                          ),
                         ListTile(
                           leading: Icon(
                             Icons.logout,
