@@ -32,6 +32,7 @@ Open a file's **Share** menu:
 - **Send the file** shares the file itself to WhatsApp, email or any app.
 - **Send a smaller copy** (photos, Android) sends a reduced copy of about 300 KB.
 - **Send to a Telegram chat** forwards the file to a chat you pick. Telegram copies it on its own servers, so nothing is downloaded and no data is used. Select several files to forward them together.
+- **Open in Telegram** shows the file in the Telegram app, where you can view or download it. Folders have the same button.
 - **Wi-Fi transfer** moves files to a laptop or phone on the same Wi-Fi.
 - In a folder, the **zip** button packs the whole folder into one .zip file to send or save.
 

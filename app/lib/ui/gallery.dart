@@ -301,7 +301,10 @@ class ImageViewerPage extends StatefulWidget {
     required this.initialIndex,
     required this.onShare,
     required this.onMore,
+    this.onOpenInTelegram,
   });
+
+  final void Function(StoredFile)? onOpenInTelegram;
 
   final DriveController drive;
   final List<StoredFile> files;
@@ -418,6 +421,9 @@ class _ImageViewerPageState extends State<ImageViewerPage> {
                   key: ValueKey(widget.files[i].messageId),
                   drive: widget.drive,
                   file: widget.files[i],
+                  onOpenInTelegram: widget.onOpenInTelegram == null
+                      ? null
+                      : () => widget.onOpenInTelegram!(widget.files[i]),
                 ),
               ),
               if (wide && _index > 0)
@@ -678,7 +684,13 @@ class _PhotoDetailsSheet extends StatelessWidget {
 }
 
 class _FullImage extends StatefulWidget {
-  const _FullImage({super.key, required this.drive, required this.file});
+  const _FullImage({
+    super.key,
+    required this.drive,
+    required this.file,
+    this.onOpenInTelegram,
+  });
+  final VoidCallback? onOpenInTelegram;
   final DriveController drive;
   final StoredFile file;
 
@@ -789,6 +801,19 @@ class _FullImageState extends State<_FullImage> {
               onPressed: _load,
             ),
           ),
+          if (widget.onOpenInTelegram != null)
+            Align(
+              alignment: const Alignment(0, 0.62),
+              child: TextButton.icon(
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  backgroundColor: Colors.black45,
+                ),
+                icon: const Icon(Icons.open_in_new),
+                label: const Text('Open in Telegram'),
+                onPressed: widget.onOpenInTelegram,
+              ),
+            ),
         ],
       );
     }

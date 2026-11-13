@@ -79,6 +79,14 @@ class MainActivity : FlutterFragmentActivity() {
             "takeSharedFiles" -> result.success(IncomingShares.take())
             "share" -> viewOrShare(call, result, share = true)
             "open" -> viewOrShare(call, result, share = false)
+            "openUrl" -> result.success(
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(call.argument<String>("url"))))
+                    true
+                } catch (e: Throwable) {
+                    false
+                },
+            )
             "startService" -> result.success(startService(call))
             "updateService" -> {
                 BackupService.update(

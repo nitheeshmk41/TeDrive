@@ -1,4 +1,7 @@
 import 'dart:async';
+
+import 'error_log.dart';
+
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
@@ -808,6 +811,13 @@ class TeDriveService {
         final f = await td.request({'@type': 'getFile', 'file_id': fileId});
         if (done.isCompleted) return;
         if (complete(f)) return done.complete(f);
+        final local = f['local'] as Json;
+        logError(
+          'download stalled',
+          'file $fileId: ${local['downloaded_size']} of ${fileSize(f)} bytes, '
+              'active=${local['is_downloading_active']}, '
+              'can=${local['can_be_downloaded']}, try ${nudges + 1}',
+        );
         if (++nudges > 5) {
           return done.completeError(
             StateError(

@@ -190,6 +190,32 @@ class DriveController extends ChangeNotifier {
   int get totalBytes => files.fold(0, (sum, f) => sum + f.size);
   bool get hasActiveUploads => uploads.any((t) => t.isActive);
 
+  /// A progress bar moved. Unlike [_notify] this keeps the sorted file
+  /// lists (nothing in them changed) and redraws at most 4 times a second:
+  /// progress arrives many times a second and redrawing a large gallery
+  /// for each tick made the whole app stutter.
+  void _progressed() {
+    if (_disposed || _progressTimer != null) return;
+    _progressTimer = Timer(const Duration(milliseconds: 250), () {
+      _progressTimer = null;
+      if (!_disposed) notifyListeners();
+    });
+  }
+
+  Timer? _progressTimer;
+
+  /// A link that opens [file]'s message in the Telegram app, where it can
+  /// be viewed and downloaded. Null before the drive has loaded.
+  String? telegramLink(StoredFile file) {
+    final chat = _chatId;
+    if (chat == null) return null;
+    // Channel chat ids are -100<channel id>; posts are numbered from 1.
+    final channel = -chat - 1000000000000;
+    final post = file.messageId >> 20;
+    if (channel <= 0 || post <= 0) return null;
+    return 'tg://privatepost?channel=$channel&post=$post';
+  }
+
   void _notify() {
     if (_disposed) return;
     _visible = null;
@@ -636,7 +662,7 @@ class DriveController extends ChangeNotifier {
               final p = copied / total;
               if (p - (task.progress ?? 0) >= 0.01) {
                 task.progress = p;
-                _notify();
+                _progressed();
               }
             }
             // Let the file system keep up instead of buffering in memory.
@@ -710,7 +736,7 @@ class DriveController extends ChangeNotifier {
         onProgress: (done, total) {
           if (total > 0) {
             task.progress = done / total;
-            _notify();
+            _progressed();
           }
         },
       );
@@ -803,7 +829,7 @@ class DriveController extends ChangeNotifier {
         onProgress: (done, total) {
           if (total > 0) {
             task.progress = done / total;
-            _notify();
+            _progressed();
           }
         },
       );
@@ -872,7 +898,7 @@ class DriveController extends ChangeNotifier {
         onProgress: (done, total) {
           if (total > 0 && downloads.containsKey(id)) {
             downloads[id] = done / total;
-            _notify();
+            _progressed();
           }
         },
       );

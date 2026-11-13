@@ -1,5 +1,12 @@
 # Changelog
 
+## v3.0.2
+
+- **Open in Telegram:** every file (share menu, file menu, photo viewer and the download dialog) and every folder can be opened in the Telegram app, to view or download it there.
+- Fixed: the app stuttered during uploads and downloads. Each progress tick re-sorted the whole file list and redrew the screen; progress now redraws at most 4 times a second and leaves the list alone.
+- Fixed: Cancel on "Preparing…" and "Downloading…" now closes at once, whatever Telegram is doing.
+- A stalled download now writes what Telegram reported to the error log.
+
 ## v3.0.1
 
 - Fixed: opening the original of a large photo could close the app. Photos are now decoded at screen size instead of full resolution.

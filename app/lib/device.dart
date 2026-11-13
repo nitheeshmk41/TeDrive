@@ -1,4 +1,4 @@
-import 'dart:io' show Platform;
+import 'dart:io' show Platform, Process;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -122,6 +122,27 @@ Future<bool> openFile(String path, {required String mime, String? name}) async {
         'name': name,
       }) ??
       false;
+}
+
+/// Opens a link (for example tg://…) in the app that handles it.
+/// Returns false if no app does.
+Future<bool> openLink(String url) async {
+  try {
+    if (kIsWeb) {
+      WebTd.open(url);
+      return true;
+    }
+    if (isAndroid) {
+      return await _channel.invokeMethod<bool>('openUrl', {'url': url}) ??
+          false;
+    }
+    final result = Platform.isWindows
+        ? await Process.run('rundll32', ['url.dll,FileProtocolHandler', url])
+        : await Process.run(Platform.isMacOS ? 'open' : 'xdg-open', [url]);
+    return result.exitCode == 0;
+  } catch (_) {
+    return false;
+  }
 }
 
 /// "full", "partial" (only photos the user selected) or "none".

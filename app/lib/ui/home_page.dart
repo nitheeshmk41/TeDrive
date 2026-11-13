@@ -169,6 +169,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final local = file.localPath;
     if (localExists(local)) return local;
     var dialogOpen = true;
+    final cancelled = Completer<String?>();
     showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -176,11 +177,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         drive: _drive,
         file: file,
         verb: verb,
-        onCancel: () => _drive.cancelDownload(file),
+        onCancel: () {
+          if (!cancelled.isCompleted) cancelled.complete(null);
+          _drive.cancelDownload(file).catchError((_) {});
+        },
+        onOpenInTelegram: () {
+          if (!cancelled.isCompleted) cancelled.complete(null);
+          _drive.cancelDownload(file).catchError((_) {});
+          _openInTelegram(file);
+        },
       ),
     ).then((_) => dialogOpen = false);
     try {
-      return await _drive.ensureLocal(file);
+      final download = _drive.ensureLocal(file);
+      // If Cancel wins, the abandoned download must not report an error.
+      download.then((_) {}, onError: (_) {});
+      return await Future.any([download, cancelled.future]);
     } on DownloadCancelled {
       return null;
     } catch (e) {
@@ -228,6 +240,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               initialIndex: index < 0 ? 0 : index,
               onShare: _shareMenu,
               onMore: _showActions,
+              onOpenInTelegram: _openInTelegram,
             ),
           ),
         );
@@ -468,6 +481,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     ),
                     onTap: () => run(() => _forwardToChat([original])),
                   ),
+                ListTile(
+                  leading: const Icon(Icons.open_in_new),
+                  title: const Text('Open in Telegram'),
+                  subtitle: const Text(
+                    'View or download it in the Telegram app',
+                  ),
+                  onTap: () => run(() => _openInTelegram(original)),
+                ),
                 if (!kIsWeb)
                   ListTile(
                     leading: const Icon(Icons.wifi_tethering),
@@ -495,6 +516,25 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         );
       },
     );
+  }
+
+  /// Shows the file's message in the Telegram app, which can always view
+  /// and download it.
+  Future<void> _openInTelegram(StoredFile original) async {
+    final link = _drive.telegramLink(_latest(original));
+    if (link == null || !await device.openLink(link)) {
+      _toast('Could not open Telegram. Is the Telegram app installed?');
+    }
+  }
+
+  /// Opens the storage channel in Telegram at the newest file of [folder].
+  Future<void> _openFolderInTelegram(String folder) async {
+    final files = filterFiles(_drive.files, folder: folder);
+    if (files.isEmpty) {
+      _toast('This folder has no files');
+      return;
+    }
+    await _openInTelegram(sortNewestFirst(files).first);
   }
 
   /// Public links are no longer made. This deletes one left by an older
@@ -1069,6 +1109,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     Navigator.pop(sheet);
                     _guard(() => _drive.setStarred([file], !file.starred));
                   },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.open_in_new),
+                  title: const Text('Open in Telegram'),
+                  onTap: () => run(_openInTelegram),
                 ),
                 ListTile(
                   leading: const Icon(Icons.share_outlined),
@@ -1831,6 +1876,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             ],
           ),
           actions: [
+            IconButton(
+              tooltip: 'Open this folder in Telegram',
+              icon: const Icon(Icons.open_in_new),
+              onPressed: () => _openFolderInTelegram(name),
+            ),
             if (!kIsWeb)
               IconButton(
                 tooltip: 'Zip this folder and send it',
@@ -2717,12 +2767,14 @@ class _DownloadDialog extends StatelessWidget {
     required this.file,
     required this.verb,
     required this.onCancel,
+    this.onOpenInTelegram,
   });
 
   final DriveController drive;
   final StoredFile file;
   final String verb;
   final VoidCallback onCancel;
+  final VoidCallback? onOpenInTelegram;
 
   @override
   Widget build(BuildContext context) => PopScope(
@@ -2752,7 +2804,14 @@ class _DownloadDialog extends StatelessWidget {
           );
         },
       ),
-      actions: [TextButton(onPressed: onCancel, child: const Text('Cancel'))],
+      actions: [
+        if (onOpenInTelegram != null)
+          TextButton(
+            onPressed: onOpenInTelegram,
+            child: const Text('Open in Telegram instead'),
+          ),
+        TextButton(onPressed: onCancel, child: const Text('Cancel')),
+      ],
     ),
   );
 }
