@@ -54,13 +54,13 @@ class _WifiTransferPageState extends State<WifiTransferPage> {
   }
 
   List<WifiFile> _offered() => [
-    for (final f in widget.drive.offline)
-      if (!f.isVault && !f.inTrash)
+    for (final c in widget.drive.onThisDevice)
+      if (!c.file.isVault && !c.file.inTrash)
         (
-          name: f.name,
-          size: f.size,
-          path: f.localPath!,
-          thumb: widget.drive.thumbPathOf(f),
+          name: c.file.name,
+          size: c.file.size,
+          path: c.path,
+          thumb: widget.drive.thumbPathOf(c.file),
         ),
   ];
 

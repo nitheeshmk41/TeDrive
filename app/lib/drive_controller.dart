@@ -167,6 +167,12 @@ class DriveController extends ChangeNotifier {
   List<StoredFile> get offline =>
       files.where((f) => localExists(f.localPath)).toList();
 
+  /// Files with any copy on this device, with that copy's path.
+  List<({StoredFile file, String path})> get onThisDevice => [
+    for (final f in files)
+      if (localCopyOf(f) case final path?) (file: f, path: path),
+  ];
+
   /// Files stored in the encrypted vault.
   List<StoredFile> get vault => files.where((f) => f.isVault).toList();
 
@@ -181,6 +187,42 @@ class DriveController extends ChangeNotifier {
 
   /// Bytes and timing of each running download, for the status line.
   final Map<int, DownloadStats> downloadStats = {};
+
+  /// Photos and videos already in this phone's gallery, by fingerprint
+  /// and by name + size. A file found here is opened from the phone and
+  /// never downloaded from Telegram.
+  Map<String, String> _phoneBySha = const {};
+  Map<String, String> _phoneByNameSize = const {};
+
+  void setPhoneCopies({
+    required Map<String, String> bySha,
+    required Map<String, String> byNameSize,
+  }) {
+    _phoneBySha = bySha;
+    _phoneByNameSize = byNameSize;
+    _notify();
+  }
+
+  /// A copy of [file] that is already on this device: a downloaded copy,
+  /// or the same photo or video in the phone's gallery. Null if none.
+  String? localCopyOf(StoredFile file) {
+    final current = _current(file);
+    if (localExists(current.localPath)) return current.localPath;
+    if (kIsWeb || current.isVault) return null;
+    final sha = current.sha256;
+    final candidates = [
+      if (sha != null) _phoneBySha[sha],
+      _phoneByNameSize['${current.name}|${current.size}'],
+    ];
+    for (final path in candidates) {
+      if (path == null) continue;
+      try {
+        final f = File(path);
+        if (f.existsSync() && f.lengthSync() == current.size) return path;
+      } catch (_) {}
+    }
+    return null;
+  }
 
   /// The preview image of [file] on this device, if it has been fetched.
   String? thumbPathOf(StoredFile file) => _thumbPaths[file.messageId];
@@ -238,7 +280,12 @@ class DriveController extends ChangeNotifier {
     final channel = -chat - 1000000000000;
     final post = file.messageId >> 20;
     if (channel <= 0 || post <= 0) return null;
-    return 'tg://privatepost?channel=$channel&post=$post';
+    final app = 'tg://privatepost?channel=$channel&post=$post';
+    // In a browser there may be no Telegram app: open Telegram Web, which
+    // understands the same address.
+    return kIsWeb
+        ? 'https://web.telegram.org/k/#?tgaddr=${Uri.encodeComponent(app)}'
+        : app;
   }
 
   void _notify() {
@@ -896,6 +943,8 @@ class DriveController extends ChangeNotifier {
   /// [background] marks a download the user did not ask for (loading the
   /// next photo ahead of time): it goes after everything else.
   Future<String> ensureLocal(StoredFile file, {bool background = false}) {
+    final here = localCopyOf(file);
+    if (here != null) return Future.value(here);
     final running = _inFlight[file.messageId];
     if (running != null) {
       // Started ahead of time and now wanted: move it to the front.

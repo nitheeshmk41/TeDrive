@@ -1,5 +1,13 @@
 # Changelog
 
+## v3.2.0
+
+- **Files already on the phone open at once.** A photo or video that is in the phone's gallery (backed up from it, or the same file) is shown, sent, shared and zipped from the phone, with no download from Telegram.
+- Fixed: a download could reach 100% and never finish, because the app waited for a completion notice Telegram did not always send. It now checks the file on disk.
+- **Open in Telegram** works in the web app (through Telegram Web).
+- The app suggests an app lock once, if none is set.
+- Release builds now refuse to be published unsigned. Unsigned builds were why updates could not install over an older version.
+
 ## v3.1.0
 
 ### Wi-Fi transfer, rebuilt

@@ -10,7 +10,6 @@ import 'package:latlong2/latlong.dart';
 import 'package:flutter/services.dart';
 
 import '../drive_controller.dart';
-import '../local_files.dart';
 import '../stored_file.dart';
 
 (IconData, Color) kindVisual(FileKind kind) => switch (kind) {
@@ -713,8 +712,10 @@ class _FullImageState extends State<_FullImage> {
   }
 
   Future<void> _start() async {
-    final local = widget.file.localPath;
-    if (!localExists(local) && !widget.drive.isDownloading(widget.file)) {
+    // Already on this phone (downloaded, or the original in the gallery):
+    // show it at once.
+    final local = widget.drive.localCopyOf(widget.file);
+    if (local == null && !widget.drive.isDownloading(widget.file)) {
       if (mounted) setState(() => _waiting = true);
       return;
     }

@@ -70,6 +70,19 @@ class BackupController extends ChangeNotifier {
     if (!_disposed) notifyListeners();
   }
 
+  /// Tells the drive which of its files are already in the phone's
+  /// gallery, so they open from the phone instead of downloading.
+  void _sharePhoneCopies() {
+    final bySha = <String, String>{};
+    final byNameSize = <String, String>{};
+    for (final i in items) {
+      final sha = _index.shaOf(i);
+      if (sha != null) bySha[sha] = i.path;
+      byNameSize['${i.name}|${i.size}'] = i.path;
+    }
+    _drive.setPhoneCopies(bySha: bySha, byNameSize: byNameSize);
+  }
+
   Future<void> init() async {
     settings = BackupSettings.decode(await _service.readSetting('backup'));
     final support = await getApplicationSupportDirectory();
@@ -123,6 +136,7 @@ class BackupController extends ChangeNotifier {
     _notify();
     try {
       items = await device.listMedia();
+      _sharePhoneCopies();
       if (settings.albums == null && items.isNotEmpty) {
         await _saveSettings(
           settings.copyWith(albums: defaultAlbums(albumsOf(items))),
@@ -231,7 +245,10 @@ class BackupController extends ChangeNotifier {
           await task.done;
           _currentTask = null;
           final sha = task.sha;
-          if (sha != null) _index.record(item, sha);
+          if (sha != null) {
+            _index.record(item, sha);
+            _sharePhoneCopies();
+          }
           if (task.status == UploadStatus.failed) {
             if (++failuresInARow >= 3) {
               notice = 'Stopped after repeated errors: ${task.message}';

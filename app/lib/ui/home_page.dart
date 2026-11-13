@@ -19,7 +19,6 @@ import '../device.dart' as device;
 import '../drive_controller.dart';
 import '../error_log.dart';
 import '../stored_file.dart';
-import '../local_files.dart';
 import '../td/web_bridge.dart';
 import '../tedrive_service.dart';
 import '../thumbnailer.dart';
@@ -88,6 +87,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _drive.trimCache(_cacheLimitBytes).catchError((_) {});
       _takeSharedFiles();
       checkForUpdateQuietly(context);
+      _suggestAppLock();
     });
     device.onSharedFiles(_takeSharedFiles);
   }
@@ -166,8 +166,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   /// download was cancelled or failed.
   Future<String?> _fetch(StoredFile original, String verb) async {
     final file = _latest(original);
-    final local = file.localPath;
-    if (localExists(local)) return local;
+    final local = _drive.localCopyOf(file);
+    if (local != null) return local;
     var dialogOpen = true;
     final cancelled = Completer<String?>();
     showDialog<void>(
@@ -624,14 +624,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final used = <String>{};
       var packed = 0;
       for (final f in files.map(_latest)) {
-        if (!localExists(f.localPath)) continue;
+        final local = _drive.localCopyOf(f);
+        if (local == null) continue;
         // Two files may share a name: number the later ones.
         var name = safeFileName(f.name);
         for (var n = 2; !used.add(name.toLowerCase()); n++) {
           name = '($n) ${safeFileName(f.name)}';
         }
         // Photos and videos are already compressed: store them as they are.
-        await encoder.addFile(File(f.localPath!), name, ZipFileEncoder.store);
+        await encoder.addFile(File(local), name, ZipFileEncoder.store);
         packed++;
       }
       await encoder.close();
@@ -672,6 +673,41 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final name = await _drive.rename(file, typed);
       _toast(name == null ? 'That name cannot be used' : 'Renamed to $name');
     });
+  }
+
+  /// Once, on phones and computers without an app lock, suggests one.
+  Future<void> _suggestAppLock() async {
+    if (kIsWeb || AppLockService.instance.isConfigured) return;
+    if (await widget.service.readSetting('app_lock_suggested') != null) return;
+    // Let the update banner, if any, go first.
+    await Future<void>.delayed(const Duration(seconds: 4));
+    if (!mounted || AppLockService.instance.isConfigured) return;
+    final messenger = ScaffoldMessenger.of(context);
+    if (messenger.mounted) messenger.hideCurrentMaterialBanner();
+    void done() {
+      messenger.hideCurrentMaterialBanner();
+      widget.service.writeSetting('app_lock_suggested', '1');
+    }
+
+    messenger.showMaterialBanner(
+      MaterialBanner(
+        leading: const Icon(Icons.lock_outline),
+        content: const Text(
+          'Add an app lock? A PIN or fingerprint keeps your files private '
+          'if someone else uses this device.',
+        ),
+        actions: [
+          TextButton(onPressed: done, child: const Text('Not now')),
+          FilledButton(
+            onPressed: () {
+              done();
+              _openAccount();
+            },
+            child: const Text('Set up'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _openAccount() {
@@ -797,7 +833,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<bool> _fetchAll(List<StoredFile> targets, String verb) async {
     final missing = [
       for (final f in targets)
-        if (!localExists(_latest(f).localPath)) _latest(f),
+        if (_drive.localCopyOf(f) == null) _latest(f),
     ];
     if (missing.isEmpty) return true;
     if (missing.length == 1) return await _fetch(missing.first, verb) != null;
@@ -864,8 +900,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (!await _fetchAll(targets, 'Preparing')) return;
     final paths = <XFile>[
       for (final f in targets.map(_latest))
-        if (localExists(f.localPath))
-          XFile(f.localPath!, mimeType: mimeOf(f.name), name: f.name),
+        if (_drive.localCopyOf(f) case final path?)
+          XFile(path, mimeType: mimeOf(f.name), name: f.name),
     ];
     if (paths.isEmpty) return;
     if (kIsWeb) {
@@ -887,7 +923,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (!kIsWeb && folder == null) return;
     var saved = 0;
     for (final f in targets.map(_latest)) {
-      if (!localExists(f.localPath)) continue;
+      if (_drive.localCopyOf(f) == null) continue;
       await _saveCopy(f, folder: folder, quiet: true);
       saved++;
     }

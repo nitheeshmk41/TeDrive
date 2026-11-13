@@ -781,15 +781,22 @@ class TeDriveService {
     done.future.ignore();
     var lastActivity = DateTime.now();
     var nudges = 0;
+    // Set when progress hits 100%: the next tick asks Telegram directly.
+    var reachedEnd = false;
     final sub = td.updates.listen((u) {
       if (u['@type'] != 'updateFile') return;
       final f = u['file'] as Json;
       if (f['id'] != fileId || done.isCompleted) return;
       lastActivity = DateTime.now();
       final local = f['local'] as Json;
-      onProgress?.call(local['downloaded_size'] as int, fileSize(f));
-      if (complete(f)) {
+      try {
+        onProgress?.call(local['downloaded_size'] as int, fileSize(f));
+      } catch (_) {}
+      if (complete(f) || _allBytesOnDisk(f)) {
         done.complete(f);
+      } else if ((local['downloaded_size'] as int? ?? 0) >= fileSize(f) &&
+          fileSize(f) > 0) {
+        reachedEnd = true;
       }
     });
     Future<Json> request() => td.request({
@@ -802,15 +809,14 @@ class TeDriveService {
     });
     final watchdog = Timer.periodic(const Duration(seconds: 5), (_) async {
       if (done.isCompleted) return;
-      if (DateTime.now().difference(lastActivity) <
-          const Duration(seconds: 30)) {
-        return;
-      }
+      final quiet = DateTime.now().difference(lastActivity);
+      if (quiet < const Duration(seconds: 30) && !reachedEnd) return;
+      reachedEnd = false;
       lastActivity = DateTime.now();
       try {
         final f = await td.request({'@type': 'getFile', 'file_id': fileId});
         if (done.isCompleted) return;
-        if (complete(f)) return done.complete(f);
+        if (complete(f) || _allBytesOnDisk(f)) return done.complete(f);
         final local = f['local'] as Json;
         logError(
           'download stalled',
@@ -982,11 +988,30 @@ class TeDriveService {
   static String? _completePath(Json file) {
     final local = file['local'] as Json;
     final path = local['path'] as String? ?? '';
-    return local['is_downloading_completed'] == true &&
+    return (local['is_downloading_completed'] == true ||
+                _allBytesOnDisk(file)) &&
             path.isNotEmpty &&
             File(path).existsSync()
         ? path
         : null;
+  }
+
+  /// Every byte is in the file on disk, even if TDLib has not (yet) said
+  /// the download is complete. Seen on phones: progress reached 100% and
+  /// the completion notice never came, so the app waited forever.
+  static bool _allBytesOnDisk(Json file) {
+    if (kIsWeb) return false;
+    final local = file['local'] as Json;
+    final size = fileSize(file);
+    final path = local['path'] as String? ?? '';
+    if (size <= 0 || path.isEmpty) return false;
+    if ((local['downloaded_size'] as int? ?? 0) < size) return false;
+    try {
+      final f = File(path);
+      return f.existsSync() && f.lengthSync() >= size;
+    } catch (_) {
+      return false;
+    }
   }
 }
 
