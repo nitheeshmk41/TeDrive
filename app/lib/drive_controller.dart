@@ -178,6 +178,31 @@ class DriveController extends ChangeNotifier {
 
   /// Download progress by message id (0..1, or null when unknown).
   final Map<int, double?> downloads = {};
+
+  /// Bytes and timing of each running download, for the status line.
+  final Map<int, DownloadStats> downloadStats = {};
+
+  /// The preview image of [file] on this device, if it has been fetched.
+  String? thumbPathOf(StoredFile file) => _thumbPaths[file.messageId];
+
+  /// What a running download of [file] is doing, in words. Says so plainly
+  /// when Telegram has stopped sending, instead of an endless spinner.
+  String downloadStatusOf(StoredFile file) {
+    final s = downloadStats[file.messageId];
+    if (s == null) return 'Starting…';
+    final quiet = DateTime.now().difference(s.lastChange).inSeconds;
+    if (quiet >= 12) {
+      return 'Telegram has sent nothing for $quiet s '
+          '(${formatBytes(s.done)} of ${formatBytes(file.size)} so far). '
+          'This network may be slowing Telegram downloads: try another '
+          'network, or open the file in Telegram.';
+    }
+    if (s.done == 0) return 'Asking Telegram for the file…';
+    final speed = s.bytesPerSecond;
+    return '${formatBytes(s.done)} of ${formatBytes(file.size)}'
+        '${speed > 0 ? ' · ${formatBytes(speed)}/s' : ''}';
+  }
+
   final Set<int> _cancelledDownloads = {};
 
   /// Uploads that run at the same time. Telegram accepts several at once,
@@ -888,6 +913,7 @@ class DriveController extends ChangeNotifier {
   Future<String> _download(StoredFile file, {bool background = false}) async {
     final id = file.messageId;
     downloads[id] = null;
+    downloadStats[id] = DownloadStats();
     _notify();
     if (!background) _foregroundDownloads++;
     try {
@@ -896,6 +922,7 @@ class DriveController extends ChangeNotifier {
         mime: mimeOf(file.name),
         priority: background ? 2 : 32,
         onProgress: (done, total) {
+          downloadStats[id]?.update(done);
           if (total > 0 && downloads.containsKey(id)) {
             downloads[id] = done / total;
             _progressed();
@@ -910,6 +937,7 @@ class DriveController extends ChangeNotifier {
       rethrow;
     } finally {
       downloads.remove(id);
+      downloadStats.remove(id);
       _cancelledDownloads.remove(id);
       if (!background && --_foregroundDownloads == 0) _pump();
       _notify();
@@ -981,5 +1009,24 @@ class DriveController extends ChangeNotifier {
     await _service.deleteFromDrive(_chatId!, [file.messageId]);
     allFiles = allFiles.where((f) => f.messageId != file.messageId).toList();
     _notify();
+  }
+}
+
+/// Progress of one download.
+class DownloadStats {
+  final DateTime started = DateTime.now();
+  DateTime lastChange = DateTime.now();
+  int done = 0;
+
+  void update(int bytes) {
+    if (bytes == done) return;
+    done = bytes;
+    lastChange = DateTime.now();
+  }
+
+  /// Average speed since the download started.
+  int get bytesPerSecond {
+    final ms = DateTime.now().difference(started).inMilliseconds;
+    return ms < 500 ? 0 : done * 1000 ~/ ms;
   }
 }

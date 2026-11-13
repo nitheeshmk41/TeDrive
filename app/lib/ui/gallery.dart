@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' show ImageFilter;
@@ -858,11 +859,12 @@ class _FullImageState extends State<_FullImage> {
                             ),
                           ),
                           const SizedBox(width: 12),
-                          Text(
-                            p == null
-                                ? 'Loading full image…'
-                                : 'Loading ${(p * 100).round()}%',
-                            style: const TextStyle(color: Colors.white),
+                          Flexible(
+                            child: DownloadStatusText(
+                              drive: widget.drive,
+                              file: widget.file,
+                              style: const TextStyle(color: Colors.white),
+                            ),
                           ),
                         ],
                       ),
@@ -948,4 +950,44 @@ class _NavButton extends StatelessWidget {
       onPressed: onPressed,
     ),
   );
+}
+
+/// One line saying what a download is doing: bytes, speed, or that
+/// Telegram has stopped sending. Refreshes every second.
+class DownloadStatusText extends StatefulWidget {
+  const DownloadStatusText({
+    super.key,
+    required this.drive,
+    required this.file,
+    this.style,
+  });
+  final DriveController drive;
+  final StoredFile file;
+  final TextStyle? style;
+
+  @override
+  State<DownloadStatusText> createState() => _DownloadStatusTextState();
+}
+
+class _DownloadStatusTextState extends State<DownloadStatusText> {
+  late final Timer _timer = Timer.periodic(
+    const Duration(seconds: 1),
+    (_) => setState(() {}),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _timer.isActive;
+  }
+
+  @override
+  void dispose() {
+    _timer.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      Text(widget.drive.downloadStatusOf(widget.file), style: widget.style);
 }

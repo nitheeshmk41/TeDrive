@@ -6,7 +6,6 @@ import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:qr_flutter/qr_flutter.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -26,12 +25,13 @@ import '../tedrive_service.dart';
 import '../thumbnailer.dart';
 import '../vault_service.dart';
 import '../updater.dart';
-import '../wifi_transfer.dart';
+
 import 'account_page.dart';
 import 'backup_page.dart';
 import 'gallery.dart';
 import 'player_page.dart';
 import 'theme.dart';
+import 'wifi_transfer_page.dart';
 
 enum _Tab { photos, albums, files, backup }
 
@@ -1577,11 +1577,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   void _openWifiTransfer() {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (_) => _WifiTransferSheet(drive: _drive),
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => WifiTransferPage(drive: _drive)),
     );
   }
 
@@ -2793,11 +2790,9 @@ class _DownloadDialog extends StatelessWidget {
               const SizedBox(height: 16),
               LinearProgressIndicator(value: progress),
               const SizedBox(height: 8),
-              Text(
-                progress == null
-                    ? 'Downloading from Telegram…'
-                    : '${(progress * 100).round()}% of '
-                          '${formatBytes(file.size)}',
+              DownloadStatusText(
+                drive: drive,
+                file: file,
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
@@ -3243,227 +3238,6 @@ class _VaultUnlockCardState extends State<_VaultUnlockCard> {
               ],
             ),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _WifiTransferSheet extends StatefulWidget {
-  const _WifiTransferSheet({required this.drive});
-  final DriveController drive;
-
-  @override
-  State<_WifiTransferSheet> createState() => _WifiTransferSheetState();
-}
-
-class _WifiTransferSheetState extends State<_WifiTransferSheet> {
-  String? _url;
-  bool _starting = true;
-  String? _error;
-  late final StreamSubscription<File> _sub;
-  final List<File> _received = [];
-
-  @override
-  void initState() {
-    super.initState();
-    _start();
-    _sub = WifiTransferService.instance.onFileReceived.listen((file) {
-      if (mounted) setState(() => _received.insert(0, file));
-    });
-  }
-
-  Future<void> _start() async {
-    setState(() {
-      _starting = true;
-      _error = null;
-    });
-    try {
-      final tmp = await getTemporaryDirectory();
-      final uploadDir = Directory('${tmp.path}/wifi_received');
-      final shareable = [
-        for (final f in widget.drive.offline)
-          if (f.localPath != null)
-            (name: f.name, size: f.size, path: f.localPath!),
-      ];
-      final url = await WifiTransferService.instance.startServer(
-        shareableFiles: shareable,
-        uploadDir: uploadDir,
-      );
-      if (mounted) setState(() => _url = url);
-    } catch (e) {
-      if (mounted) setState(() => _error = '$e');
-    } finally {
-      if (mounted) setState(() => _starting = false);
-    }
-  }
-
-  @override
-  void dispose() {
-    _sub.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.wifi_tethering, color: scheme.primary, size: 28),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Wi-Fi transfer',
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      Text(
-                        'Direct LAN transfer — zero internet data',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-            if (_starting)
-              const CircularProgressIndicator()
-            else if (_error != null) ...[
-              Icon(Icons.error_outline, color: scheme.error, size: 40),
-              const SizedBox(height: 8),
-              Text(_error!, style: TextStyle(color: scheme.error)),
-            ] else if (_url != null) ...[
-              Text(
-                'On another phone or computer on the same Wi-Fi, open:',
-                style: theme.textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 10,
-                ),
-                decoration: BoxDecoration(
-                  color: scheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    SelectableText(
-                      _url!,
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: scheme.onPrimaryContainer,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    IconButton(
-                      icon: const Icon(Icons.copy),
-                      tooltip: 'Copy link',
-                      onPressed: () {
-                        Clipboard.setData(ClipboardData(text: _url!));
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Wi-Fi Transfer URL copied'),
-                          ),
-                        );
-                      },
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              Container(
-                width: 160,
-                height: 160,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.08),
-                      blurRadius: 10,
-                    ),
-                  ],
-                ),
-                child: QrImageView(
-                  data: _url!,
-                  backgroundColor: Colors.white,
-                  padding: EdgeInsets.zero,
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'Or scan this code with a phone camera',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-            if (_received.isNotEmpty) ...[
-              const Divider(height: 32),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  'Received (${_received.length})',
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              for (final file in _received)
-                ListTile(
-                  leading: const Icon(Icons.file_download_done),
-                  title: Text(file.uri.pathSegments.last),
-                  subtitle: Text(formatBytes(file.lengthSync())),
-                  trailing: TextButton(
-                    onPressed: () {
-                      widget.drive.enqueuePath(
-                        file.path,
-                        name: file.uri.pathSegments.last,
-                        size: file.lengthSync(),
-                        fromBackup: false,
-                      );
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            'Adding ${file.uri.pathSegments.last} to TeDrive',
-                          ),
-                        ),
-                      );
-                    },
-                    child: const Text('Add to drive'),
-                  ),
-                ),
-            ],
-            const SizedBox(height: 20),
-            OutlinedButton(
-              onPressed: () {
-                WifiTransferService.instance.stopServer();
-                Navigator.pop(context);
-              },
-              child: const Text('Stop transfer'),
-            ),
-          ],
         ),
       ),
     );

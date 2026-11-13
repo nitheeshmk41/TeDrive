@@ -3,4 +3,4 @@ const String storageChannelTitle = 'TeDrive Storage';
 
 /// This build's version. Keep in step with `version:` in pubspec.yaml
 /// (a unit test checks this).
-const String appVersion = '3.0.2';
+const String appVersion = '3.1.0';

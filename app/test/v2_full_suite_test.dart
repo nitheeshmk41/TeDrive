@@ -11,7 +11,10 @@ void main() {
   group('Nested Folders', () {
     test('normalizeFolder handles nested paths and redundant slashes', () {
       expect(normalizeFolder('Photos//2026/Goa/'), 'Photos/2026/Goa');
-      expect(normalizeFolder(r'Documents\Work\Invoices'), 'Documents/Work/Invoices');
+      expect(
+        normalizeFolder(r'Documents\Work\Invoices'),
+        'Documents/Work/Invoices',
+      );
       expect(normalizeFolder('  Root / Sub  / Deep /  '), 'Root/Sub/Deep');
     });
 
@@ -29,10 +32,11 @@ void main() {
     });
 
     test('folderBreadcrumbs builds cumulative segments', () {
-      expect(
-        folderBreadcrumbs('Photos/2026/Trip'),
-        ['Photos', 'Photos/2026', 'Photos/2026/Trip'],
-      );
+      expect(folderBreadcrumbs('Photos/2026/Trip'), [
+        'Photos',
+        'Photos/2026',
+        'Photos/2026/Trip',
+      ]);
       expect(folderBreadcrumbs('Single'), ['Single']);
       expect(folderBreadcrumbs(''), isEmpty);
     });
@@ -54,7 +58,10 @@ void main() {
       expect(directSubfolders(files, 'Photos'), ['Photos/2025', 'Photos/2026']);
 
       // Subfolders under Photos/2026
-      expect(directSubfolders(files, 'Photos/2026'), ['Photos/2026/Goa', 'Photos/2026/Ooty']);
+      expect(directSubfolders(files, 'Photos/2026'), [
+        'Photos/2026/Goa',
+        'Photos/2026/Ooty',
+      ]);
     });
 
     test('filesInFolder filters direct vs recursive files', () {
@@ -66,7 +73,10 @@ void main() {
       ];
 
       // Non-recursive: only files directly in 'Work'
-      expect(filesInFolder(files, 'Work', recursive: false).map((f) => f.messageId), [1]);
+      expect(
+        filesInFolder(files, 'Work', recursive: false).map((f) => f.messageId),
+        [1],
+      );
 
       // Recursive: files in 'Work' and all its subfolders
       expect(
@@ -96,8 +106,12 @@ void main() {
             'sizes': [
               {
                 'width': 600,
-                'photo': {'id': 10, 'size': 5000, 'local': {'path': ''}},
-              }
+                'photo': {
+                  'id': 10,
+                  'size': 5000,
+                  'local': {'path': ''},
+                },
+              },
             ],
           },
           'caption': {'text': caption},
@@ -127,7 +141,8 @@ void main() {
 
   group('Encrypted Vault', () {
     test('VaultCipher encrypts and decrypts with PBKDF2 + AES-CTR + HMAC', () {
-      const secretDocument = 'Aadhaar: 1234 5678 9012, Name: Nitheesh, DOB: 01/01/2000';
+      const secretDocument =
+          'Aadhaar: 1234 5678 9012, Name: Nitheesh, DOB: 01/01/2000';
       final clearBytes = Uint8List.fromList(utf8.encode(secretDocument));
       const passphrase = 'MySuperSecretPassphrase#2026';
 
@@ -138,7 +153,10 @@ void main() {
       // Ciphertext must be longer than plaintext (magic + salt + iv + mac)
       expect(encrypted.length, clearBytes.length + 9 + 16 + 16 + 32);
       // Ciphertext must not contain the plaintext string
-      expect(utf8.decode(encrypted, allowMalformed: true), isNot(contains(secretDocument)));
+      expect(
+        utf8.decode(encrypted, allowMalformed: true),
+        isNot(contains(secretDocument)),
+      );
 
       // Decryption with correct passphrase succeeds
       final decrypted = VaultCipher.decrypt(encrypted, passphrase);
@@ -146,7 +164,9 @@ void main() {
     });
 
     test('VaultCipher rejects incorrect passphrase', () {
-      final clearBytes = Uint8List.fromList(utf8.encode('PAN Card: ABCDE1234F'));
+      final clearBytes = Uint8List.fromList(
+        utf8.encode('PAN Card: ABCDE1234F'),
+      );
       final encrypted = VaultCipher.encrypt(clearBytes, 'CorrectPassword');
 
       expect(
@@ -183,7 +203,11 @@ void main() {
           '@type': 'messageDocument',
           'document': {
             'file_name': 'aadhaar.pdf.vault',
-            'document': {'id': 20, 'size': 12000, 'local': {'path': ''}},
+            'document': {
+              'id': 20,
+              'size': 12000,
+              'local': {'path': ''},
+            },
           },
           'caption': {'text': caption},
         },
@@ -213,10 +237,7 @@ void main() {
   group('Album Share Links', () {
     test('album share link round-trips through caption', () {
       const shareUrl = 'https://t.me/tedrive_share/88';
-      final caption = buildCaption(
-        sha256: 'c' * 64,
-        albumShare: shareUrl,
-      );
+      final caption = buildCaption(sha256: 'c' * 64, albumShare: shareUrl);
       expect(caption, contains('albumshare:$shareUrl'));
 
       final message = {
@@ -226,7 +247,11 @@ void main() {
           '@type': 'messageDocument',
           'document': {
             'file_name': 'photo.jpg',
-            'document': {'id': 30, 'size': 4000, 'local': {'path': ''}},
+            'document': {
+              'id': 30,
+              'size': 4000,
+              'local': {'path': ''},
+            },
           },
           'caption': {'text': caption},
         },

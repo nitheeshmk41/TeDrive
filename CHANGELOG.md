@@ -1,5 +1,16 @@
 # Changelog
 
+## v3.1.0
+
+### Wi-Fi transfer, rebuilt
+- New full-screen page: QR code, address, a 6-digit access code, a "Device connected" indicator and a live list of every file sent and received, with progress.
+- New page for the other device: thumbnails, search, photo and video preview, select many and download them as one zip, drag and drop to send, with speed and progress per file. Works with no internet.
+- **Security fix:** before, anyone on the same Wi-Fi could fetch any file from the device. Now every request needs the access code, only the files offered can be fetched, and transfer stops when the page is closed.
+- Large files are written to disk as they arrive instead of being held in memory, and downloads can resume.
+
+### Downloads
+- The download dialog and the photo viewer now say what is happening: bytes and speed, or plainly that Telegram has sent nothing for a number of seconds.
+
 ## v3.0.2
 
 - **Open in Telegram:** every file (share menu, file menu, photo viewer and the download dialog) and every folder can be opened in the Telegram app, to view or download it there.

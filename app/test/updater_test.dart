@@ -7,7 +7,10 @@ import 'package:test/test.dart';
 void main() {
   test('appVersion matches pubspec.yaml', () {
     final pubspec = File('pubspec.yaml').readAsStringSync();
-    final m = RegExp(r'^version:\s*([\d.]+)', multiLine: true).firstMatch(pubspec);
+    final m = RegExp(
+      r'^version:\s*([\d.]+)',
+      multiLine: true,
+    ).firstMatch(pubspec);
     expect(m!.group(1), appVersion);
   });
 

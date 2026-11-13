@@ -48,7 +48,14 @@ The **Vault** is for documents such as Aadhaar, PAN or passport scans. Files are
 
 ## Wi-Fi transfer
 
-In the Android or desktop app, **Wi-Fi transfer** shows an address and a QR code. On another phone or computer on the same Wi-Fi, open the address in a browser to download files from this device or send files to it; files sent to it are added to your drive. No internet data is used. The web app cannot do this, because browsers cannot accept connections.
+Moves files between this device and any phone or computer on the same Wi-Fi or hotspot. No internet data is used.
+
+1. In the Android or desktop app, open **Wi-Fi transfer**.
+2. On the other device, scan the QR code, or type the address shown into a browser and enter the 6-digit code.
+3. **Get files** lists the files kept on the TeDrive device: preview, download one, or select several and download them as a zip.
+4. **Send files** sends files to the TeDrive device; drag and drop works. They are added to your drive unless you turn that off.
+
+Only devices with the code can connect, the code changes every time, and transfer stops when you leave the page. Only files already on the device (shown under **Offline**) are offered. The web app cannot host Wi-Fi transfer, because browsers cannot accept connections.
 
 ## Uploads and downloads
 
