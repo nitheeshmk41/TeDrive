@@ -702,8 +702,12 @@ class _FullImageState extends State<_FullImage> {
   String? _path;
   String? _error;
 
-  /// On mobile data the full photo waits for a tap (data saver).
+  /// The original is downloaded only when asked for.
   bool _waiting = false;
+
+  /// While loading, looks every 2 s whether the file has arrived, so the
+  /// photo appears even if the "finished" notice is missed.
+  Timer? _poll;
 
   @override
   void initState() {
@@ -711,12 +715,23 @@ class _FullImageState extends State<_FullImage> {
     _start();
   }
 
+  @override
+  void dispose() {
+    _poll?.cancel();
+    super.dispose();
+  }
+
   Future<void> _start() async {
-    // Already on this phone (downloaded, or the original in the gallery):
-    // show it at once.
-    final local = widget.drive.localCopyOf(widget.file);
-    if (local == null && !widget.drive.isDownloading(widget.file)) {
-      if (mounted) setState(() => _waiting = true);
+    // Already on this device (downloaded before, or the original in the
+    // gallery): show it at once.
+    final local = await widget.drive.findOnDevice(widget.file);
+    if (!mounted) return;
+    if (local != null) {
+      setState(() => _path = local);
+      return;
+    }
+    if (!widget.drive.isDownloading(widget.file)) {
+      setState(() => _waiting = true);
       return;
     }
     _load();
@@ -735,11 +750,24 @@ class _FullImageState extends State<_FullImage> {
       _error = null;
       _waiting = false;
     });
+    _poll?.cancel();
+    _poll = Timer.periodic(const Duration(seconds: 2), (_) async {
+      final found = await widget.drive.findOnDevice(widget.file);
+      if (found != null && mounted && _path == null) {
+        _poll?.cancel();
+        setState(() {
+          _path = found;
+          _error = null;
+        });
+      }
+    });
     try {
       final path = await widget.drive.ensureLocal(widget.file);
       if (mounted) setState(() => _path = path);
     } catch (e) {
-      if (mounted) setState(() => _error = '$e');
+      if (mounted && _path == null) setState(() => _error = '$e');
+    } finally {
+      _poll?.cancel();
     }
   }
 

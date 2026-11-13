@@ -16,6 +16,7 @@ import 'package:share_plus/share_plus.dart';
 import '../app_lock.dart';
 import '../backup_controller.dart';
 import '../device.dart' as device;
+import '../config.dart';
 import '../drive_controller.dart';
 import '../error_log.dart';
 import '../stored_file.dart';
@@ -86,7 +87,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // Keep the app light: downloaded copies are a cache, not storage.
       _drive.trimCache(_cacheLimitBytes).catchError((_) {});
       _takeSharedFiles();
-      checkForUpdateQuietly(context);
+      if (!isPlayBuild) checkForUpdateQuietly(context);
       _suggestAppLock();
     });
     device.onSharedFiles(_takeSharedFiles);
@@ -1413,7 +1414,37 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     );
   }
 
+  DateTime? _lastBack;
+
+  /// Back: leaves selection, then returns to Photos, then asks for a
+  /// second press before closing the app.
+  void _onBack() {
+    if (_selected.isNotEmpty) return _clearSelection();
+    if (_tab != _Tab.photos) {
+      setState(() => _tab = _Tab.photos);
+      return;
+    }
+    final now = DateTime.now();
+    if (_lastBack != null &&
+        now.difference(_lastBack!) < const Duration(seconds: 2)) {
+      SystemNavigator.pop();
+      return;
+    }
+    _lastBack = now;
+    _toast('Press back again to close TeDrive');
+  }
+
   Widget _buildHome(BuildContext context) {
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _onBack();
+      },
+      child: _buildHomeBody(context),
+    );
+  }
+
+  Widget _buildHomeBody(BuildContext context) {
     return ListenableBuilder(
       listenable: _drive,
       builder: (context, _) => LayoutBuilder(

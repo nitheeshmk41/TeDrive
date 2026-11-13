@@ -414,7 +414,7 @@ class _AccountPageState extends State<AccountPage> {
                               );
                             },
                           ),
-                        if (!kIsWeb)
+                        if (!kIsWeb && !isPlayBuild)
                           ListTile(
                             leading: const Icon(Icons.system_update_outlined),
                             title: const Text('Check for updates'),

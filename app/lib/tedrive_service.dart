@@ -712,6 +712,28 @@ class TeDriveService {
     }
   }
 
+  /// The path of [fileId] if Telegram already has the whole file on this
+  /// device (in the browser: a blob: URL), without starting a download.
+  Future<String?> completedCopy(int fileId, {String? mime}) async {
+    try {
+      if (kIsWeb) {
+        final known = _webUrls[fileId];
+        if (known != null) return known;
+        final f = await td.request({'@type': 'getFile', 'file_id': fileId});
+        if ((f['local'] as Json)['is_downloading_completed'] != true) {
+          return null;
+        }
+        final url = await WebTd.fileUrl(fileId, mime: mime);
+        if (url != null) _webUrls[fileId] = url;
+        return url;
+      }
+      final f = await td.request({'@type': 'getFile', 'file_id': fileId});
+      return _completePath(f);
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Moves a download already running to the front of the queue.
   void raisePriority(int fileId) {
     td
@@ -807,16 +829,22 @@ class TeDriveService {
       'limit': 0,
       'synchronous': false,
     });
-    final watchdog = Timer.periodic(const Duration(seconds: 5), (_) async {
-      if (done.isCompleted) return;
+    var checking = false;
+    final watchdog = Timer.periodic(const Duration(seconds: 2), (_) async {
+      if (done.isCompleted || checking) return;
       final quiet = DateTime.now().difference(lastActivity);
-      if (quiet < const Duration(seconds: 30) && !reachedEnd) return;
+      if (quiet < const Duration(seconds: 2) && !reachedEnd) return;
       reachedEnd = false;
-      lastActivity = DateTime.now();
+      checking = true;
       try {
         final f = await td.request({'@type': 'getFile', 'file_id': fileId});
         if (done.isCompleted) return;
         if (complete(f) || _allBytesOnDisk(f)) return done.complete(f);
+        if (DateTime.now().difference(lastActivity) <
+            const Duration(seconds: 30)) {
+          return;
+        }
+        lastActivity = DateTime.now();
         final local = f['local'] as Json;
         logError(
           'download stalled',
@@ -833,7 +861,10 @@ class TeDriveService {
           );
         }
         await request();
-      } catch (_) {}
+      } catch (_) {
+      } finally {
+        checking = false;
+      }
     });
     try {
       final first = await request();

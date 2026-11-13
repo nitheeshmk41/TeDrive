@@ -224,6 +224,22 @@ class DriveController extends ChangeNotifier {
     return null;
   }
 
+  /// Like [localCopyOf], but also asks Telegram whether it already holds
+  /// the whole file on this device (for example a download that finished
+  /// while the app was not watching). Starts no download.
+  Future<String?> findOnDevice(StoredFile file) async {
+    final here = localCopyOf(file);
+    if (here != null) return here;
+    final path = await _service.completedCopy(
+      file.fileId,
+      mime: mimeOf(file.name),
+    );
+    if (path != null && !_disposed) {
+      _replace(_current(file).withLocalPath(path));
+    }
+    return path;
+  }
+
   /// The preview image of [file] on this device, if it has been fetched.
   String? thumbPathOf(StoredFile file) => _thumbPaths[file.messageId];
 

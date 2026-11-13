@@ -1,5 +1,11 @@
 # Changelog
 
+## v3.2.1
+
+- Fixed: **Load original** could stay on "Starting…" although the file had already arrived, and a downloaded file could still show as not downloaded. The viewer now asks Telegram directly whether the file is on the device, both when it opens and every 2 seconds while loading.
+- Back button: leaves selection, then returns to Photos, then asks for a second press before closing.
+- Google Play: releases now include a Play bundle (`.aab`, built when the signing key is set) without the in-app updater, plus a privacy policy and publishing guide in `docs/`.
+
 ## v3.2.0
 
 - **Files already on the phone open at once.** A photo or video that is in the phone's gallery (backed up from it, or the same file) is shown, sent, shared and zipped from the phone, with no download from Telegram.
