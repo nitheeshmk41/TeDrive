@@ -42,6 +42,11 @@ class BackupController extends ChangeNotifier {
   bool _disposed = false;
   bool _askedNotifications = false;
 
+  /// When automatic or manual backup last finished with nothing left.
+  DateTime? lastRun;
+  Timer? _widgetTimer;
+  String? _widgetShown;
+
   bool _serviceOn = false;
   DateTime _lastServiceAttempt = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime _lastServiceUpdate = DateTime.fromMillisecondsSinceEpoch(0);
@@ -67,7 +72,60 @@ class BackupController extends ChangeNotifier {
       freeable(items, index: _index, driveSizeBySha: _drive.sizeBySha);
 
   void _notify() {
-    if (!_disposed) notifyListeners();
+    if (_disposed) return;
+    notifyListeners();
+    _widgetTimer ??= Timer(const Duration(seconds: 2), () {
+      _widgetTimer = null;
+      if (!_disposed) _updateWidget();
+    });
+  }
+
+  /// Keeps the home-screen widget in step.
+  void _updateWidget() {
+    final String status;
+    String? why;
+    if (!hasPermission) {
+      status = 'Backup is off';
+      why = 'Open TeDrive to allow access to photos';
+    } else if (running) {
+      status = runTotal == 0
+          ? 'Checking for new photos…'
+          : 'Backing up ${runDone + 1 > runTotal ? runTotal : runDone + 1} of $runTotal';
+    } else if (notice != null) {
+      status = 'Backup paused';
+      why = notice;
+    } else {
+      final n = pending.length;
+      status = n == 0
+          ? 'All backed up'
+          : n == 1
+          ? '1 photo or video waiting'
+          : '$n photos and videos waiting';
+    }
+    final last = lastRun;
+    final detail = [
+      ?why,
+      last == null
+          ? 'Not backed up yet'
+          : 'Last backup: ${describeWhen(last, DateTime.now())}',
+      if (settings.auto)
+        settings.frequency.label.toLowerCase()
+      else
+        'automatic backup off',
+    ].join(' · ');
+    final key = '$status|$detail';
+    if (key == _widgetShown) return;
+    _widgetShown = key;
+    device.updateWidget(status, detail);
+  }
+
+  /// Tells Android when to wake TeDrive (or remind) for scheduled backup.
+  void _syncSchedule() {
+    device.setBackupSchedule(
+      mode: settings.auto ? settings.frequency.name : 'off',
+      albums: selectedAlbums,
+      lastRun: lastRun,
+    );
   }
 
   /// Tells the drive which of its files are already in the phone's
@@ -85,6 +143,10 @@ class BackupController extends ChangeNotifier {
 
   Future<void> init() async {
     settings = BackupSettings.decode(await _service.readSetting('backup'));
+    final last = int.tryParse(
+      await _service.readSetting('backup_last_run') ?? '',
+    );
+    if (last != null) lastRun = DateTime.fromMillisecondsSinceEpoch(last);
     final support = await getApplicationSupportDirectory();
     _indexFile = File('${support.path}/backup_index.json');
     if (_indexFile!.existsSync()) {
@@ -93,6 +155,7 @@ class BackupController extends ChangeNotifier {
     permission = await device.mediaPermission();
     _drive.addListener(_onDriveChanged);
     _timer = Timer.periodic(const Duration(minutes: 1), (_) => maybeAutoRun());
+    _syncSchedule();
     _notify();
     if (hasPermission) {
       await scan();
@@ -105,6 +168,7 @@ class BackupController extends ChangeNotifier {
     _disposed = true;
     _stopRequested = true;
     _timer?.cancel();
+    _widgetTimer?.cancel();
     _drive.removeListener(_onDriveChanged);
     if (_serviceOn) device.stopKeepAlive();
     super.dispose();
@@ -158,10 +222,17 @@ class BackupController extends ChangeNotifier {
 
   Future<void> setAuto(bool on) async {
     await _saveSettings(settings.copyWith(auto: on));
+    _syncSchedule();
     if (on) {
       _askForNotifications();
       maybeAutoRun();
     }
+  }
+
+  Future<void> setFrequency(BackupFrequency f) async {
+    await _saveSettings(settings.copyWith(frequency: f));
+    _syncSchedule();
+    maybeAutoRun();
   }
 
   Future<void> setUnmeteredOnly(bool on) =>
@@ -170,10 +241,11 @@ class BackupController extends ChangeNotifier {
   Future<void> setChargingOnly(bool on) =>
       _saveSettings(settings.copyWith(chargingOnly: on));
 
-  Future<void> setAlbum(String name, bool on) {
+  Future<void> setAlbum(String name, bool on) async {
     final next = {...selectedAlbums};
     on ? next.add(name) : next.remove(name);
-    return _saveSettings(settings.copyWith(albums: next));
+    await _saveSettings(settings.copyWith(albums: next));
+    _syncSchedule();
   }
 
   void _askForNotifications() {
@@ -195,7 +267,12 @@ class BackupController extends ChangeNotifier {
 
   /// Starts a backup if automatic backup is on and nothing prevents it.
   void maybeAutoRun() {
-    if (settings.auto && !running && hasPermission) run();
+    if (settings.auto &&
+        !running &&
+        hasPermission &&
+        backupDue(settings.frequency, lastRun, DateTime.now())) {
+      run();
+    }
   }
 
   /// Backs up everything pending. Honours the Wi-Fi and charging settings.
@@ -216,7 +293,10 @@ class BackupController extends ChangeNotifier {
       final todo = pending;
       runTotal = todo.length;
       _notify();
-      if (todo.isEmpty) return;
+      if (todo.isEmpty) {
+        await _markRun();
+        return;
+      }
       _askForNotifications();
       var failuresInARow = 0;
       for (final item in todo) {
@@ -262,6 +342,9 @@ class BackupController extends ChangeNotifier {
         if (runDone % 20 == 0) await _saveIndex();
         _notify();
       }
+      if (runDone == todo.length && notice == null && !_stopRequested) {
+        await _markRun();
+      }
     } catch (e) {
       notice = 'Backup stopped: $e';
     } finally {
@@ -276,6 +359,15 @@ class BackupController extends ChangeNotifier {
       _notify();
       _onDriveChanged();
     }
+  }
+
+  Future<void> _markRun() async {
+    lastRun = DateTime.now();
+    await _service.writeSetting(
+      'backup_last_run',
+      '${lastRun!.millisecondsSinceEpoch}',
+    );
+    _syncSchedule();
   }
 
   /// Stops the run after cancelling the upload in progress.

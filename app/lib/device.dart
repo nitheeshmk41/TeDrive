@@ -56,14 +56,113 @@ Future<List<SharedFile>> takeSharedFiles() async {
 /// Calls [listener] whenever new shared files arrive while the app is
 /// running. Pass null to stop.
 void onSharedFiles(void Function()? listener) {
+  _sharedListener = listener;
+  _installHandler();
+}
+
+/// Calls [listener] when a widget button, reminder notification or the
+/// backup alarm asks the running app to do something ("backup",
+/// "scheduledBackup"). Pass null to stop.
+void onLaunchAction(void Function(String action)? listener) {
+  _actionListener = listener;
+  _installHandler();
+}
+
+void Function()? _sharedListener;
+void Function(String action)? _actionListener;
+
+void _installHandler() {
   if (!isAndroid) return;
+  final none = _sharedListener == null && _actionListener == null;
   _channel.setMethodCallHandler(
-    listener == null
+    none
         ? null
         : (call) async {
-            if (call.method == 'sharedFilesReady') listener();
+            if (call.method == 'sharedFilesReady') _sharedListener?.call();
+            if (call.method == 'launchAction' && call.arguments is String) {
+              _actionListener?.call(call.arguments as String);
+            }
           },
   );
+}
+
+/// The action the app was opened for (from the widget or a notification),
+/// once.
+Future<String?> takeLaunchAction() async {
+  if (!isAndroid) return null;
+  try {
+    return await _channel.invokeMethod<String>('takeLaunchAction');
+  } on PlatformException {
+    return null;
+  }
+}
+
+/// Labels ("Beach", "Food"…) and printed text found in a photo, worked out
+/// on the phone. Null where this is not available or the image is unreadable.
+Future<({List<String> labels, String text})?> analyzeImage(String path) async {
+  if (!isAndroid) return null;
+  try {
+    final m = await _channel.invokeMapMethod<String, Object?>('analyzeImage', {
+      'path': path,
+    });
+    if (m == null) return null;
+    return (
+      labels: (m['labels'] as List? ?? const []).whereType<String>().toList(),
+      text: m['text'] as String? ?? '',
+    );
+  } on PlatformException {
+    return null;
+  } on MissingPluginException {
+    return null;
+  }
+}
+
+/// Copies a file into Downloads/[folder] on the phone. Returns where it went.
+Future<String?> saveToDownloads(
+  String path, {
+  required String name,
+  required String mime,
+  String folder = 'TeDrive',
+}) async {
+  if (!isAndroid) return null;
+  return _channel.invokeMethod<String>('saveToDownloads', {
+    'path': path,
+    'name': name,
+    'mime': mime,
+    'folder': folder,
+  });
+}
+
+/// Updates the home-screen widget.
+Future<void> updateWidget(String status, String detail) async {
+  if (!isAndroid) return;
+  try {
+    await _channel.invokeMethod<void>('updateWidget', {
+      'status': status,
+      'detail': detail,
+    });
+  } on PlatformException {
+    // The widget is a nicety.
+  }
+}
+
+/// Sets the Android alarm for daily or weekly backup ([mode] "off",
+/// "instant", "daily" or "weekly").
+Future<void> setBackupSchedule({
+  required String mode,
+  required Iterable<String> albums,
+  required DateTime? lastRun,
+}) async {
+  if (!isAndroid) return;
+  try {
+    await _channel.invokeMethod<void>('setBackupSchedule', {
+      'mode': mode,
+      'albums': albums.toList(),
+      'lastRun': (lastRun?.millisecondsSinceEpoch ?? 0) ~/ 1000,
+    });
+  } on PlatformException {
+    // Backup still runs whenever the app is open.
+  }
 }
 
 /// A readable name for this device, e.g. "Samsung SM-A525F".

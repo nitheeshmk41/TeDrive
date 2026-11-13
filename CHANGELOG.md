@@ -1,5 +1,16 @@
 # Changelog
 
+## v3.3.0
+
+- **Export everything** (Account → Export everything): downloads the whole drive and saves it as .zip parts (500 MB to 4 GB each) in Downloads/TeDrive Export, with folders kept. Each part's downloads are cleared before the next starts, so it fits on a nearly full phone. Vault files are not included.
+- **Find duplicates** (Account → Find duplicates): files stored more than once (same SHA-256, or same name and size), how much space the copies take, and one tap to move the extra copies to the trash. The oldest copy is kept.
+- **Search what is in your photos**: search finds photos by their contents ("beach", "food", "receipt") and by text in them, worked out on the phone with Google ML Kit. Nothing is sent anywhere. The first look through all photos runs in the background while TeDrive is open.
+- **Daily or weekly backup**: automatic backup can run instantly, once a day or once a week. At 9 pm, a running TeDrive backs up; a closed one shows a notification ("12 new photos to back up") that backs up with one tap.
+- **Home-screen widget**: backup status (all backed up, waiting, backing up 5 of 40), last backup time, and a **Back up** button.
+
+- **About** now shows the real version (it said 1.0.0), the credit "This was done by Nitheesh.", and links to the developer's GitHub profile and the TeDrive source code. The credit also appears at the foot of the Account page.
+- **Check for updates** shows what's new in the release, offers the releases page when it is up to date or cannot check, and no longer reads a stale cached version number from the TeDrive site. It can also be opened from About.
+
 ## v3.2.1
 
 - Fixed: **Load original** could stay on "Starting…" although the file had already arrived, and a downloaded file could still show as not downloaded. The viewer now asks Telegram directly whether the file is on the device, both when it opens and every 2 seconds while loading.

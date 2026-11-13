@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 import '../config.dart';
 import '../error_log.dart';
 import '../updater.dart';
+import 'tools_pages.dart';
 
 /// Who is signed in, what the drive holds, and how much of it is kept on
 /// this device.
@@ -381,6 +382,43 @@ class _AccountPageState extends State<AccountPage> {
                     child: Column(
                       children: [
                         ListTile(
+                          leading: const Icon(Icons.copy_all_outlined),
+                          title: const Text('Find duplicates'),
+                          subtitle: const Text(
+                            'Files stored more than once, and the space '
+                            'they take',
+                          ),
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) =>
+                                  DuplicatesPage(drive: widget.drive),
+                            ),
+                          ),
+                        ),
+                        if (!kIsWeb)
+                          ListTile(
+                            leading: const Icon(
+                              Icons.download_for_offline_outlined,
+                            ),
+                            title: const Text('Export everything'),
+                            subtitle: const Text(
+                              'Your whole drive as .zip files on this device',
+                            ),
+                            onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => ExportPage(drive: widget.drive),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  Card(
+                    clipBehavior: Clip.antiAlias,
+                    child: Column(
+                      children: [
+                        ListTile(
                           leading: const Icon(Icons.info_outline),
                           title: const Text('About TeDrive'),
                           subtitle: const Text('Version $appVersion'),
@@ -437,6 +475,16 @@ class _AccountPageState extends State<AccountPage> {
                       ],
                     ),
                   ),
+                  const SizedBox(height: 24),
+                  Center(
+                    child: Text(
+                      'TeDrive v$appVersion · $madeByText',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
                 ],
               ),
             ),

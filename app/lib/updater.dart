@@ -69,8 +69,11 @@ const _site = 'https://tedrive.vercel.app/download';
 Future<AppRelease?> _fetchFromSite() async {
   final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
   try {
-    final res = await (await client.getUrl(Uri.parse('$_site/version.txt')))
-        .close();
+    final res = await (await client.getUrl(
+      Uri.parse(
+        '$_site/version.txt?t=${DateTime.now().millisecondsSinceEpoch}',
+      ),
+    )).close();
     if (res.statusCode != 200) return null;
     final tag = (await res.transform(utf8.decoder).join()).trim();
     if (!RegExp(r'^v\d').hasMatch(tag)) return null;
@@ -169,7 +172,7 @@ class _UpdateDialogState extends State<_UpdateDialog> {
   Future<void> _install() async {
     final release = _release!;
     if (!device.isAndroid) {
-      _openInBrowser(releasesPage);
+      await device.openLink(releasesPage);
       if (mounted) Navigator.pop(context);
       return;
     }
@@ -259,6 +262,20 @@ class _UpdateDialogState extends State<_UpdateDialog> {
                 : 'Download it from the releases page and replace this copy.',
             style: theme.textTheme.bodySmall,
           ),
+          if (_release!.notes.trim().isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Text("What's new", style: theme.textTheme.titleSmall),
+            const SizedBox(height: 4),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 220),
+              child: SingleChildScrollView(
+                child: Text(
+                  _release!.notes.trim(),
+                  style: theme.textTheme.bodySmall,
+                ),
+              ),
+            ),
+          ],
           if (_error != null) ...[
             const SizedBox(height: 8),
             Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
@@ -272,6 +289,11 @@ class _UpdateDialogState extends State<_UpdateDialog> {
       title: const Text('Check for updates'),
       content: body,
       actions: [
+        if (_progress == null && !_checking && (_error != null || !_hasUpdate))
+          TextButton(
+            onPressed: () => device.openLink(releasesPage),
+            child: const Text('Releases page'),
+          ),
         if (_progress == null)
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -287,16 +309,4 @@ class _UpdateDialogState extends State<_UpdateDialog> {
       ],
     );
   }
-}
-
-void _openInBrowser(String url) {
-  try {
-    if (Platform.isWindows) {
-      Process.run('rundll32', ['url.dll,FileProtocolHandler', url]);
-    } else if (Platform.isMacOS) {
-      Process.run('open', [url]);
-    } else {
-      Process.run('xdg-open', [url]);
-    }
-  } catch (_) {}
 }

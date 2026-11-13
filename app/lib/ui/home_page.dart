@@ -15,6 +15,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../app_lock.dart';
 import '../backup_controller.dart';
+import '../content_index.dart';
 import '../device.dart' as device;
 import '../config.dart';
 import '../drive_controller.dart';
@@ -55,6 +56,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     widget.service,
     _drive,
   );
+  late final ContentIndex _contents = ContentIndex(_drive);
   final _search = TextEditingController();
   _Tab _tab = _Tab.photos;
   Category _category = Category.all;
@@ -83,7 +85,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // Backup compares the phone with the drive, so load the drive first.
     _drive.load().then((_) {
       if (!mounted) return;
-      if (_hasBackup) _backup.init();
+      if (_hasBackup) _backup.init().then((_) => _takeLaunchAction());
+      _contents.init();
       // Keep the app light: downloaded copies are a cache, not storage.
       _drive.trimCache(_cacheLimitBytes).catchError((_) {});
       _takeSharedFiles();
@@ -91,6 +94,31 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _suggestAppLock();
     });
     device.onSharedFiles(_takeSharedFiles);
+    device.onLaunchAction(_onLaunchAction);
+    _contents.addListener(_onContentsChanged);
+  }
+
+  void _onContentsChanged() {
+    if (_query.isNotEmpty && mounted) setState(() {});
+  }
+
+  Future<void> _takeLaunchAction() async {
+    final action = await device.takeLaunchAction();
+    if (action != null) _onLaunchAction(action);
+  }
+
+  /// The widget's "Back up" button, a backup reminder, or the alarm for
+  /// daily or weekly backup.
+  void _onLaunchAction(String action) {
+    if (!mounted || !_hasBackup) return;
+    if (action == 'scheduledBackup') {
+      _backup.maybeAutoRun();
+      return;
+    }
+    if (action == 'backup') {
+      setState(() => _tab = _Tab.backup);
+      _backup.run();
+    }
   }
 
   /// Downloaded copies are trimmed to this size, oldest use first.
@@ -135,6 +163,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     device.onSharedFiles(null);
+    device.onLaunchAction(null);
+    _contents.removeListener(_onContentsChanged);
+    _contents.dispose();
     _backup.dispose();
     _drive.dispose();
     _search.dispose();
@@ -1683,7 +1714,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     controller: _search,
                     textInputAction: TextInputAction.search,
                     decoration: const InputDecoration(
-                      hintText: 'Search your drive',
+                      hintText: 'Search names, or what is in photos',
                       filled: false,
                       border: InputBorder.none,
                       focusedBorder: InputBorder.none,
@@ -1744,16 +1775,72 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     showAboutDialog(
       context: context,
       applicationName: 'TeDrive',
-      applicationVersion: '1.0.0',
+      applicationVersion: 'Version $appVersion',
       applicationIcon: const AppLogo(size: 48),
-      children: const [
-        Text(
+      applicationLegalese: madeByText,
+      children: [
+        const SizedBox(height: 16),
+        const Text(
           'A personal cloud drive that keeps your files in a private '
           'channel of your own Telegram account.\n\n'
           'TeDrive is an independent app. It uses the Telegram API but is '
           'not made or endorsed by Telegram.',
         ),
+        const SizedBox(height: 8),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.person_outline),
+          title: const Text('Developer on GitHub'),
+          subtitle: const Text('github.com/nitheeshmk41'),
+          onTap: () => device.openLink(authorGithubUrl),
+        ),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.code),
+          title: const Text('Source code'),
+          subtitle: const Text('github.com/nitheeshmk41/TeDrive'),
+          onTap: () => device.openLink(repoGithubUrl),
+        ),
+        if (!kIsWeb && !isPlayBuild)
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.system_update_outlined),
+            title: const Text('Check for updates'),
+            onTap: () => showUpdateDialog(context),
+          ),
       ],
+    );
+  }
+
+  /// Above search results: how far the look inside photos has got.
+  Widget? _contentSearchNote() {
+    if (!ContentIndex.available) return null;
+    final p = _contents.progress;
+    if (p.total == 0) return null;
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      child: Row(
+        children: [
+          Icon(
+            Icons.image_search,
+            size: 18,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              p.done >= p.total
+                  ? 'Also searched what is in your ${p.total} photos'
+                  : 'Also searching what is in your photos: '
+                        '${p.done} of ${p.total} looked at so far',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1773,10 +1860,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final Widget body;
     if (_query.isNotEmpty) {
       body = _fileList(
-        filterFiles(_drive.files, query: _query),
+        filterFiles(
+          _drive.files,
+          query: _query,
+          contentMatches: _contents.matches,
+        ),
         emptyTitle: 'No results',
         emptyText: 'Nothing in your drive matches "$_query".',
-        header: null,
+        header: _contentSearchNote(),
       );
     } else {
       body = switch (_tab) {

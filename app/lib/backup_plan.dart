@@ -86,6 +86,7 @@ class BackupSettings {
     this.unmeteredOnly = true,
     this.chargingOnly = false,
     this.albums,
+    this.frequency = BackupFrequency.instant,
   });
 
   factory BackupSettings.decode(String? text) {
@@ -99,6 +100,10 @@ class BackupSettings {
         unmeteredOnly: m['unmeteredOnly'] != false,
         chargingOnly: m['chargingOnly'] == true,
         albums: albums is List ? albums.whereType<String>().toSet() : null,
+        frequency: BackupFrequency.values.firstWhere(
+          (f) => f.name == m['frequency'],
+          orElse: () => BackupFrequency.instant,
+        ),
       );
     } on FormatException {
       return const BackupSettings();
@@ -115,16 +120,21 @@ class BackupSettings {
   /// Albums to back up. Null until the user's albums have been seen once.
   final Set<String>? albums;
 
+  /// How often automatic backup runs.
+  final BackupFrequency frequency;
+
   BackupSettings copyWith({
     bool? auto,
     bool? unmeteredOnly,
     bool? chargingOnly,
     Set<String>? albums,
+    BackupFrequency? frequency,
   }) => BackupSettings(
     auto: auto ?? this.auto,
     unmeteredOnly: unmeteredOnly ?? this.unmeteredOnly,
     chargingOnly: chargingOnly ?? this.chargingOnly,
     albums: albums ?? this.albums,
+    frequency: frequency ?? this.frequency,
   );
 
   String encode() => jsonEncode({
@@ -132,6 +142,7 @@ class BackupSettings {
     'unmeteredOnly': unmeteredOnly,
     'chargingOnly': chargingOnly,
     if (albums != null) 'albums': albums!.toList()..sort(),
+    'frequency': frequency.name,
   });
 }
 
@@ -209,4 +220,45 @@ String? blockedReason(
   if (settings.unmeteredOnly && !unmetered) return 'Waiting for Wi-Fi';
   if (settings.chargingOnly && !charging) return 'Waiting for the charger';
   return null;
+}
+
+/// How often automatic backup runs.
+enum BackupFrequency {
+  /// As soon as new photos and videos appear (while the app is running).
+  instant('As soon as new photos appear'),
+  daily('Once a day'),
+  weekly('Once a week');
+
+  const BackupFrequency(this.label);
+  final String label;
+
+  Duration? get interval => switch (this) {
+    instant => null,
+    daily => const Duration(hours: 20),
+    weekly => const Duration(days: 6, hours: 20),
+  };
+}
+
+/// Whether automatic backup should run now. Daily and weekly runs leave a
+/// few hours' slack so the run can drift with the user's habits.
+bool backupDue(BackupFrequency frequency, DateTime? lastRun, DateTime now) {
+  final interval = frequency.interval;
+  if (interval == null || lastRun == null) return true;
+  return now.difference(lastRun) >= interval;
+}
+
+/// "Today 14:05", "Yesterday 09:30", "3 Nov 21:00".
+String describeWhen(DateTime t, DateTime now) {
+  String two(int n) => n.toString().padLeft(2, '0');
+  final time = '${two(t.hour)}:${two(t.minute)}';
+  final today = DateTime(now.year, now.month, now.day);
+  final day = DateTime(t.year, t.month, t.day);
+  final daysAgo = today.difference(day).inDays;
+  if (daysAgo == 0) return 'Today $time';
+  if (daysAgo == 1) return 'Yesterday $time';
+  const months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', //
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+  return '${t.day} ${months[t.month - 1]} $time';
 }

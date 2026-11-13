@@ -43,6 +43,7 @@ class MainActivity : FlutterFragmentActivity() {
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
         super.cleanUpFlutterEngine(flutterEngine)
         TeDriveEngine.detach(flutterEngine)
+        if (liveChannel != null && FlutterEngineCache.getInstance().get(TeDriveEngine.ENGINE_ID) !== flutterEngine) liveChannel = null
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -54,7 +55,34 @@ class MainActivity : FlutterFragmentActivity() {
         deviceChannel.setMethodCallHandler(::onDeviceCall)
         // Tell the Flutter side when another app shares files into TeDrive.
         IncomingShares.onReady = { deviceChannel.invokeMethod("sharedFilesReady", null) }
+        liveChannel = deviceChannel
     }
+
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        super.onCreate(savedInstanceState)
+        takeActionFrom(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        takeActionFrom(intent)
+    }
+
+    override fun onDestroy() {
+        if (isFinishing) liveChannel = null
+        super.onDestroy()
+    }
+
+    /** A widget button or reminder notification asked for something. */
+    private fun takeActionFrom(intent: Intent?) {
+        val action = intent?.getStringExtra(BackupSchedule.EXTRA_ACTION) ?: return
+        intent.removeExtra(BackupSchedule.EXTRA_ACTION)
+        pendingAction = action
+        liveChannel?.invokeMethod("launchAction", action)
+    }
+
+    private var pendingAction: String? = null
 
     // ------------------------------------------------------------ Device
 
@@ -76,6 +104,44 @@ class MainActivity : FlutterFragmentActivity() {
             "deleteMedia" -> deleteMedia(call.argument<List<Map<String, Any>>>("items") ?: emptyList(), result)
             "deviceStatus" -> result.success(deviceStatus())
             "deviceName" -> result.success(deviceName())
+            "takeLaunchAction" -> {
+                result.success(pendingAction)
+                pendingAction = null
+            }
+            "analyzeImage" -> {
+                val path = call.argument<String>("path") ?: ""
+                thread {
+                    val found = PhotoAnalyzer.analyze(applicationContext, path)
+                    runOnUiThread { result.success(found) }
+                }
+            }
+            "saveToDownloads" -> {
+                val path = call.argument<String>("path") ?: ""
+                val name = call.argument<String>("name") ?: File(path).name
+                val mime = call.argument<String>("mime") ?: "application/octet-stream"
+                val folder = call.argument<String>("folder") ?: "TeDrive"
+                thread {
+                    val saved = DownloadsSaver.save(applicationContext, File(path), name, mime, folder)
+                    runOnUiThread { result.success(saved) }
+                }
+            }
+            "updateWidget" -> {
+                BackupWidget.save(
+                    applicationContext,
+                    call.argument<String>("status") ?: "",
+                    call.argument<String>("detail") ?: "",
+                )
+                result.success(null)
+            }
+            "setBackupSchedule" -> {
+                BackupSchedule.save(
+                    applicationContext,
+                    call.argument<String>("mode") ?: "off",
+                    call.argument<List<String>>("albums") ?: emptyList(),
+                    (call.argument<Number>("lastRun") ?: 0).toLong(),
+                )
+                result.success(null)
+            }
             "takeSharedFiles" -> result.success(IncomingShares.take())
             "share" -> viewOrShare(call, result, share = true)
             "open" -> viewOrShare(call, result, share = false)
@@ -423,8 +489,12 @@ class MainActivity : FlutterFragmentActivity() {
         )
     }
 
-    private companion object {
-        const val REQUEST_MEDIA = 4101
+    companion object {
+        /** The app's device channel while its screen's engine is alive. */
+        @Volatile
+        var liveChannel: MethodChannel? = null
+
+        private const val REQUEST_MEDIA = 4101
         const val REQUEST_NOTIFICATIONS = 4102
         const val REQUEST_DELETE = 4103
     }

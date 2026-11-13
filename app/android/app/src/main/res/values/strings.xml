@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_description">TeDrive backup status, with a button to back up now</string>
+</resources>

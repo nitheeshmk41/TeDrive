@@ -74,4 +74,8 @@ dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     // AppCompat themes, needed by the fingerprint prompt on older Android.
     implementation("androidx.appcompat:appcompat:1.7.0")
+    // Searching photos by what is in them, worked out on the phone
+    // (models built into the app, nothing is sent anywhere).
+    implementation("com.google.mlkit:image-labeling:17.0.9")
+    implementation("com.google.mlkit:text-recognition:16.0.1")
 }

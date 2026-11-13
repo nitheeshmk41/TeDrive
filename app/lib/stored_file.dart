@@ -521,6 +521,9 @@ List<StoredFile> filterFiles(
   Category category = Category.all,
   String? folder,
   String query = '',
+
+  /// Also counts as a match for the query, e.g. what is in a photo.
+  bool Function(StoredFile file, String query)? contentMatches,
 }) {
   final q = query.trim().toLowerCase();
   if (category == Category.all && folder == null && q.isEmpty) return files;
@@ -529,7 +532,9 @@ List<StoredFile> filterFiles(
         (f) =>
             inCategory(f, category) &&
             (folder == null || f.folder == folder) &&
-            (q.isEmpty || f.name.toLowerCase().contains(q)),
+            (q.isEmpty ||
+                f.name.toLowerCase().contains(q) ||
+                (contentMatches?.call(f, q) ?? false)),
       )
       .toList();
 }
@@ -856,3 +861,48 @@ List<StoredFile> vaultFiles(Iterable<StoredFile> files) => [
   for (final f in files)
     if (f.isVault && !f.inTrash) f,
 ];
+
+/// Files stored more than once. Two files are the same when they have the
+/// same SHA-256, or (for files uploaded without one) the same name and size.
+/// In each group the first-uploaded copy comes first: that one is kept.
+List<List<StoredFile>> findDuplicates(Iterable<StoredFile> files) {
+  final groups = <String, List<StoredFile>>{};
+  for (final f in files) {
+    if (f.inTrash || f.isVault) continue;
+    final key = f.sha256 != null
+        ? 'sha:${f.sha256}'
+        : 'name:${f.name.toLowerCase()}|${f.size}';
+    (groups[key] ??= []).add(f);
+  }
+  final result = [
+    for (final g in groups.values)
+      if (g.length > 1)
+        g..sort((a, b) {
+          final byDate = a.uploaded.compareTo(b.uploaded);
+          return byDate != 0 ? byDate : a.messageId.compareTo(b.messageId);
+        }),
+  ];
+  // Biggest saving first.
+  int waste(List<StoredFile> g) => g.first.size * (g.length - 1);
+  result.sort((a, b) => waste(b).compareTo(waste(a)));
+  return result;
+}
+
+/// Splits [files] into parts of at most [maxBytes] each (a single larger
+/// file gets a part of its own), keeping their order.
+List<List<StoredFile>> splitIntoParts(List<StoredFile> files, int maxBytes) {
+  final parts = <List<StoredFile>>[];
+  var current = <StoredFile>[];
+  var bytes = 0;
+  for (final f in files) {
+    if (current.isNotEmpty && bytes + f.size > maxBytes) {
+      parts.add(current);
+      current = [];
+      bytes = 0;
+    }
+    current.add(f);
+    bytes += f.size;
+  }
+  if (current.isNotEmpty) parts.add(current);
+  return parts;
+}

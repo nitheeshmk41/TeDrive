@@ -218,6 +218,50 @@ class _Content extends StatelessWidget {
           value: settings.auto,
           onChanged: backup.setAuto,
         ),
+        if (settings.auto)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(72, 0, 16, 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SegmentedButton<BackupFrequency>(
+                  showSelectedIcon: false,
+                  segments: const [
+                    ButtonSegment(
+                      value: BackupFrequency.instant,
+                      label: Text('Instantly'),
+                    ),
+                    ButtonSegment(
+                      value: BackupFrequency.daily,
+                      label: Text('Daily'),
+                    ),
+                    ButtonSegment(
+                      value: BackupFrequency.weekly,
+                      label: Text('Weekly'),
+                    ),
+                  ],
+                  selected: {settings.frequency},
+                  onSelectionChanged: (s) => backup.setFrequency(s.first),
+                ),
+                const SizedBox(height: 6),
+                Text(switch (settings.frequency) {
+                  BackupFrequency.instant =>
+                    'Uploads as soon as new photos appear.',
+                  BackupFrequency.daily =>
+                    'Backs up once a day. If TeDrive is closed at 9 pm, '
+                        'a notification offers to back up with one tap.',
+                  BackupFrequency.weekly =>
+                    'Backs up once a week. If TeDrive is closed at 9 pm, '
+                        'a notification offers to back up with one tap.',
+                }, style: theme.textTheme.bodySmall),
+                if (backup.lastRun != null)
+                  Text(
+                    'Last backup: ${describeWhen(backup.lastRun!, DateTime.now())}',
+                    style: theme.textTheme.bodySmall,
+                  ),
+              ],
+            ),
+          ),
         SwitchListTile(
           secondary: const Icon(Icons.wifi),
           title: const Text('Only on Wi-Fi'),
