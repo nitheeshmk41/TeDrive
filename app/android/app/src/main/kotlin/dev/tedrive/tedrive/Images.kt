@@ -2,6 +2,7 @@ package dev.tedrive.tedrive
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.ColorSpace
 import android.graphics.ImageDecoder
 import android.graphics.Matrix
 import android.media.ExifInterface
@@ -28,6 +29,9 @@ object Images {
                     decoder.setTargetSampleSize(sample)
                     // Plain memory, so the pixels can be read and saved.
                     decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                    // HDR and 10-bit photos would otherwise come out in
+                    // wide-colour formats that the photo models cannot take.
+                    decoder.setTargetColorSpace(ColorSpace.get(ColorSpace.Named.SRGB))
                 }
             } else {
                 decodeLegacy(file, maxSide)
@@ -35,7 +39,13 @@ object Images {
         } catch (e: Throwable) {
             null
         } ?: return null
-        return scaleDown(bitmap, maxSide)
+        val plain = if (bitmap.config == Bitmap.Config.ARGB_8888) bitmap
+        else try {
+            bitmap.copy(Bitmap.Config.ARGB_8888, false)
+        } catch (e: Throwable) {
+            null
+        } ?: return null
+        return scaleDown(plain, maxSide)
     }
 
     private fun decodeLegacy(file: File, maxSide: Int): Bitmap? {

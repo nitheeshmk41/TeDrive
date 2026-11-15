@@ -50,6 +50,15 @@ android {
         }
     }
 
+    buildFeatures {
+        buildConfig = true
+    }
+
+    androidResources {
+        // The face model is read as it is stored.
+        noCompress += "tflite"
+    }
+
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName(
@@ -79,4 +88,6 @@ dependencies {
     implementation("com.google.mlkit:image-labeling:17.0.9")
     implementation("com.google.mlkit:text-recognition:16.0.1")
     implementation("com.google.mlkit:face-detection:16.1.7")
+    // Telling faces apart, on the phone, for the photo widget's "a person".
+    implementation("com.google.mediapipe:tasks-vision:0.10.14")
 }

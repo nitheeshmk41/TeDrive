@@ -312,7 +312,10 @@ class _UpdateDialogState extends State<_UpdateDialog> {
           const SizedBox(height: 8),
           Text(
             device.isAndroid
-                ? 'It installs over this version. Your sign-in, files and settings stay.'
+                ? 'It installs over this version. Your sign-in, files and '
+                      'settings stay. TeDrive closes while Android installs '
+                      'it; tap Open at the end, or the "TeDrive updated" '
+                      'notification.'
                 : 'Download it from the releases page and replace this copy.',
             style: theme.textTheme.bodySmall,
           ),

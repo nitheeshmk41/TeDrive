@@ -59,6 +59,7 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        CrashLog.install(this)
         super.onCreate(savedInstanceState)
         takeActionFrom(intent)
     }
@@ -119,8 +120,14 @@ class MainActivity : FlutterFragmentActivity() {
             }
             "analyzeImage" -> {
                 val path = call.argument<String>("path") ?: ""
+                val key = call.argument<String>("key")
+                val faceDir = call.argument<String>("faceDir")
                 thread {
-                    val found = PhotoAnalyzer.analyze(applicationContext, path)
+                    val found = try {
+                        PhotoAnalyzer.analyze(applicationContext, path, key, faceDir)
+                    } catch (e: Throwable) {
+                        null
+                    }
                     runOnUiThread { result.success(found) }
                 }
             }
@@ -142,8 +149,13 @@ class MainActivity : FlutterFragmentActivity() {
             "setWidgetPhotos" -> {
                 val paths = call.argument<List<String>>("paths") ?: emptyList()
                 val captions = call.argument<List<String>>("captions") ?: emptyList()
+                val ids = call.argument<List<String>>("ids") ?: emptyList()
                 thread {
-                    val saved = PhotoWidgets.setPhotos(applicationContext, paths, captions)
+                    val saved = try {
+                        PhotoWidgets.setPhotos(applicationContext, paths, captions, ids)
+                    } catch (e: Throwable) {
+                        0
+                    }
                     runOnUiThread { result.success(saved) }
                 }
             }

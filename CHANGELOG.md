@@ -1,5 +1,26 @@
 # Changelog
 
+## v3.4.1
+
+### App closing by itself
+- Photos taken in HDR or 10-bit colour were handed to the photo models in a colour format they cannot take. This is the most likely reason v3.4.0 closed by itself while it looked through photos after the update. Photos are now always converted to standard colour first.
+- If a photo still makes the app close, TeDrive remembers which one and skips it from then on, instead of closing again at every start.
+- When the app closes unexpectedly, the reason is now written to the error log (Account → Copy error log). Please send it if it happens.
+- The photo widget can no longer take the app down with it.
+
+### Updating
+- While Android installs an update it closes TeDrive; that is normal. A **TeDrive updated** notification now appears afterwards, to open it again with one tap. The update dialog says so before you start.
+
+### Photo widget: one person
+- **Albums → Photo widget → A person…**: faces that look alike are grouped. Tap a face (yours, say), check its photos, and tap **Show in widget**. If other people appear, choose **Close match**; if photos are missing, choose **More photos**.
+- Faces are compared on the phone with a model built into the app (Google MediaPipe). Nothing is sent anywhere, and no names are put to faces.
+- Every photo is looked at once more after this update, to find the faces.
+
+### Photo widget, better
+- Tap the photo to open that photo in TeDrive.
+- Captions say "5 years ago today" on the anniversary of a photo, and name its album.
+- Sharper pictures, 40 photos per set instead of 24, and a new set every 3 hours when TeDrive is opened or comes back to the screen.
+
 ## v3.4.0
 
 ### Videos in Albums

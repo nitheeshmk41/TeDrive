@@ -4,6 +4,7 @@
 import 'dart:convert';
 import 'dart:math';
 
+import 'faces.dart';
 import 'search.dart';
 import 'stored_file.dart';
 
@@ -25,6 +26,9 @@ enum WidgetSourceKind {
 
   /// Photos of one thing ("Food", "Sky"); [WidgetSource.value] is its label.
   thing,
+
+  /// Photos of one person; [WidgetSource.value] is from [encodePerson].
+  person,
 }
 
 /// The user's choice of what the photo widget shows.
@@ -63,6 +67,7 @@ class WidgetSource {
     WidgetSourceKind.portraits => 'Selfies & portraits',
     WidgetSourceKind.album => folderBaseName(value),
     WidgetSourceKind.thing => value,
+    WidgetSourceKind.person => 'A person',
   };
 
   @override
@@ -79,6 +84,9 @@ List<StoredFile> widgetCandidates(
   WidgetSource source,
   PhotoContent? Function(StoredFile file) contentOf,
 ) {
+  final person = source.kind == WidgetSourceKind.person
+      ? decodePerson(source.value)
+      : null;
   bool wanted(StoredFile f) => switch (source.kind) {
     WidgetSourceKind.all => true,
     WidgetSourceKind.starred => f.starred,
@@ -89,6 +97,13 @@ List<StoredFile> widgetCandidates(
           (f.folder?.startsWith('${source.value}/') ?? false),
     WidgetSourceKind.thing =>
       contentOf(f)?.labels.contains(source.value) ?? false,
+    WidgetSourceKind.person =>
+      person != null &&
+          showsPerson(
+            contentOf(f)?.prints ?? const [],
+            person.center,
+            person.match,
+          ),
   };
   return [
     for (final f in files)
@@ -125,8 +140,17 @@ const _monthNames = [
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
-/// What the widget writes under a photo: "November 2024".
-String widgetCaption(StoredFile file) {
+/// What the widget writes under a photo: "3 years ago · Goa" on the day
+/// the photo was taken, otherwise "November 2024 · Goa".
+String widgetCaption(StoredFile file, [DateTime? now]) {
   final when = file.taken ?? file.date;
-  return '${_monthNames[when.month - 1]} ${when.year}';
+  final today = now ?? DateTime.now();
+  final years = today.year - when.year;
+  final date = years >= 1 && when.month == today.month && when.day == today.day
+      ? (years == 1 ? '1 year ago today' : '$years years ago today')
+      : '${_monthNames[when.month - 1]} ${when.year}';
+  final album = file.folder == null ? '' : folderBaseName(file.folder!);
+  // Albums made by backup are named after the phone's folders.
+  const plain = {'Camera', 'DCIM', 'Pictures', 'Screenshots', 'Download'};
+  return album.isEmpty || plain.contains(album) ? date : '$date · $album';
 }

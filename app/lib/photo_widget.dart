@@ -24,7 +24,7 @@ class PhotoWidgetController extends ChangeNotifier {
   final ContentIndex _contents;
 
   /// A new set of photos this often, when the app is opened.
-  static const _refreshEvery = Duration(hours: 6);
+  static const _refreshEvery = Duration(hours: 3);
 
   WidgetSource source = WidgetSource.all;
   bool _busy = false;
@@ -41,6 +41,13 @@ class PhotoWidgetController extends ChangeNotifier {
     source = WidgetSource.decode(
       await _service.readSetting('photo_widget_source'),
     );
+    await refreshIfDue();
+  }
+
+  /// A new set of photos if the last one is old. Called when the app
+  /// starts and whenever it comes back to the screen.
+  Future<void> refreshIfDue() async {
+    if (!available || _disposed) return;
     final last = DateTime.tryParse(
       await _service.readSetting('photo_widget_refreshed') ?? '',
     );
@@ -73,9 +80,11 @@ class PhotoWidgetController extends ChangeNotifier {
         widgetCandidates(_drive.files, source, _contents.contentOf),
         isOnPhone: (f) => _drive.localCopyOf(f) != null,
         random: Random(),
+        max: 40,
       );
       final paths = <String>[];
       final captions = <String>[];
+      final ids = <int>[];
       for (final StoredFile f in picked) {
         final path =
             _drive.localCopyOf(f) ??
@@ -83,11 +92,12 @@ class PhotoWidgetController extends ChangeNotifier {
         if (path == null) continue;
         paths.add(path);
         captions.add(widgetCaption(f));
+        ids.add(f.messageId);
       }
       // Nothing to show yet (a new drive, or photos still being looked
       // at): leave the widget as it is and try again next time.
       if (paths.isEmpty) return 0;
-      final saved = await device.setWidgetPhotos(paths, captions);
+      final saved = await device.setWidgetPhotos(paths, captions, ids);
       if (saved > 0) {
         await _service.writeSetting(
           'photo_widget_refreshed',

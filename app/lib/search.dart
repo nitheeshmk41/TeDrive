@@ -1,21 +1,37 @@
 // Search and smart albums. Pure logic, no Flutter, so it is unit-testable.
 
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'stored_file.dart';
 
 /// What was found inside a photo, on the phone: things ("Beach", "Food"),
 /// printed text, and how many faces.
 class PhotoContent {
-  const PhotoContent({this.labels = const [], this.text = '', this.faces = 0});
+  const PhotoContent({
+    this.labels = const [],
+    this.text = '',
+    this.faces = 0,
+    this.prints = const [],
+  });
 
   factory PhotoContent.fromJson(Map<Object?, Object?> m) => PhotoContent(
     labels: (m['l'] as List? ?? const []).whereType<String>().toList(),
     text: m['t'] as String? ?? '',
     faces: m['f'] as int? ?? 0,
+    prints: [
+      for (final p in (m['p'] as List? ?? const []).whereType<String>())
+        if (_decodePrint(p) case final print?) print,
+    ],
   );
 
   final List<String> labels;
   final String text;
   final int faces;
+
+  /// A fingerprint per face, in the same order as the saved face pictures
+  /// (`<message id>_<n>.jpg`). Faces that look alike have close prints.
+  final List<Int8List> prints;
 
   /// Enough printed text to be a document, screenshot, receipt or sign.
   bool get isTexty => text.length >= 60;
@@ -24,6 +40,8 @@ class PhotoContent {
     if (labels.isNotEmpty) 'l': labels,
     if (text.isNotEmpty) 't': text,
     if (faces > 0) 'f': faces,
+    if (prints.isNotEmpty)
+      'p': [for (final p in prints) base64Encode(Uint8List.sublistView(p))],
   };
 
   /// Words a search may match by their start, lower case: what was found,
@@ -38,6 +56,15 @@ class PhotoContent {
     if (faces >= 2) ...['group', 'together', 'friends'],
     if (isTexty) ...['text', 'document', 'writing'],
   };
+}
+
+Int8List? _decodePrint(String text) {
+  try {
+    final bytes = base64Decode(text);
+    return bytes.isEmpty ? null : Int8List.sublistView(bytes);
+  } on FormatException {
+    return null;
+  }
 }
 
 final _notWord = RegExp(r'[^\p{L}\p{N}]+', unicode: true);

@@ -1,5 +1,7 @@
 import 'dart:io' show Platform, Process;
 
+import 'dart:typed_data';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
@@ -100,19 +102,28 @@ Future<String?> takeLaunchAction() async {
 /// Labels ("Beach", "Food"…), printed text and the number of faces found in
 /// a photo, worked out
 /// on the phone. Null where this is not available or the image is unreadable.
-Future<({List<String> labels, String text, int faces})?> analyzeImage(
-  String path,
-) async {
+///
+/// With [key] and [faceDir], also a fingerprint of each face, and a small
+/// picture of it saved in [faceDir] as `<key>_<n>.jpg`.
+Future<({List<String> labels, String text, int faces, List<Int8List> prints})?>
+analyzeImage(String path, {String? key, String? faceDir}) async {
   if (!isAndroid) return null;
   try {
     final m = await _channel.invokeMapMethod<String, Object?>('analyzeImage', {
       'path': path,
+      'key': key,
+      'faceDir': faceDir,
     });
     if (m == null) return null;
     return (
       labels: (m['labels'] as List? ?? const []).whereType<String>().toList(),
       text: m['text'] as String? ?? '',
       faces: m['faces'] as int? ?? 0,
+      prints: [
+        for (final p
+            in (m['prints'] as List? ?? const []).whereType<Uint8List>())
+          Int8List.sublistView(p),
+      ],
     );
   } on PlatformException {
     return null;
@@ -150,12 +161,17 @@ Future<void> updateWidget(Map<String, Object> values) async {
 
 /// Gives the photo widget the photos at [paths] (small copies are made),
 /// each with a caption. Returns how many it could read.
-Future<int> setWidgetPhotos(List<String> paths, List<String> captions) async {
+Future<int> setWidgetPhotos(
+  List<String> paths,
+  List<String> captions,
+  List<int> ids,
+) async {
   if (!isAndroid) return 0;
   try {
     return await _channel.invokeMethod<int>('setWidgetPhotos', {
           'paths': paths,
           'captions': captions,
+          'ids': [for (final id in ids) '$id'],
         }) ??
         0;
   } on PlatformException {

@@ -32,6 +32,7 @@ import '../vault_service.dart';
 import '../updater.dart';
 
 import 'account_page.dart';
+import 'person_picker.dart';
 import 'backup_page.dart';
 import 'gallery.dart';
 import 'player_page.dart';
@@ -96,6 +97,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (!mounted) return;
       if (_hasBackup) _backup.init().then((_) => _takeLaunchAction());
       _contents.init().then((_) => _widgetPhotos.init());
+      if (!_hasBackup) _takeLaunchAction();
       _clearDecryptedVaultCopies();
       // Keep the app light: downloaded copies are a cache, not storage.
       _drive.trimCache(_cacheLimitBytes).catchError((_) {});
@@ -137,7 +139,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   /// The widget's "Back up" button, a backup reminder, or the alarm for
   /// daily or weekly backup.
   void _onLaunchAction(String action) {
-    if (!mounted || !_hasBackup) return;
+    if (!mounted) return;
+    // A photo tapped in the photo widget.
+    if (action.startsWith('openPhoto:')) {
+      final id = int.tryParse(action.substring('openPhoto:'.length));
+      final file = _drive.files.where((f) => f.messageId == id).firstOrNull;
+      if (file != null) _open(file, [file]);
+      return;
+    }
+    if (!_hasBackup) return;
     if (action == 'scheduledBackup') {
       _backup.maybeAutoRun();
       return;
@@ -161,6 +171,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (state != AppLifecycleState.resumed) return;
     if (AppLockService.instance.onResumed() && mounted) setState(() {});
     if (_hasBackup) _backup.onResume();
+    _widgetPhotos.refreshIfDue();
     _takeSharedFiles();
   }
 
@@ -2208,6 +2219,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     ),
   );
 
+  /// Lets the user pick a face; the widget then shows that person.
+  Future<void> _choosePerson() async {
+    final chosen = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => PersonPickerPage(drive: _drive, contents: _contents),
+      ),
+    );
+    if (chosen == null || !mounted) return;
+    final shown = await _widgetPhotos.setSource(
+      WidgetSource(WidgetSourceKind.person, chosen),
+    );
+    _toast(
+      shown > 0
+          ? 'The photo widget now shows this person ($shown photos)'
+          : 'Could not read those photos yet. Try again in a moment.',
+    );
+  }
+
   /// Lets the user choose which photos the home-screen widget shows.
   void _choosePhotoWidget() {
     final smart = _contents.albums;
@@ -2217,6 +2246,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       'Groups',
       'Text & documents',
     };
+    final hasFaces = _contents.faces.isNotEmpty;
     final choices = <(WidgetSource, IconData)>[
       (WidgetSource.all, Icons.photo_library_outlined),
       (const WidgetSource(WidgetSourceKind.portraits), Icons.face_outlined),
@@ -2256,10 +2286,30 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 'changes every half hour. To add it, press and hold an '
                 'empty part of your home screen, tap Widgets, and find '
                 'TeDrive photos.\n\n'
-                'Selfies & portraits are photos with one face in them. '
-                'TeDrive cannot yet tell whose face it is.',
+                'Choose "A person" to show the photos of one face, '
+                'for example yours. Faces are compared on this phone; '
+                'nothing is sent anywhere.',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.face_retouching_natural),
+              title: const Text('A person…'),
+              subtitle: Text(
+                _widgetPhotos.source.kind == WidgetSourceKind.person
+                    ? 'Showing a person now. Tap to choose another.'
+                    : hasFaces
+                    ? 'Pick a face, such as yours'
+                    : 'Faces appear here once your photos have been '
+                          'looked at',
+              ),
+              selected: _widgetPhotos.source.kind == WidgetSourceKind.person,
+              trailing: const Icon(Icons.chevron_right),
+              enabled: hasFaces,
+              onTap: () {
+                Navigator.pop(sheet);
+                _choosePerson();
+              },
             ),
             for (final (source, icon) in choices)
               Builder(

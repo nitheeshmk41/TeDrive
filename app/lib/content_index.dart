@@ -1,12 +1,13 @@
-// Looks inside the drive's photos and video previews, on the phone
-// (Google ML Kit, models
-// built into the app): things ("beach", "food"), printed text and faces.
+// Looks inside the drive's photos and video previews, on the phone (Google
+// ML Kit and MediaPipe, models built into the app): things ("beach",
+// "food"), printed text, faces, and a fingerprint of each face.
 // Search and the smart albums use it. Nothing is sent anywhere; the
 // results stay in a file on this device.
 
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
@@ -14,6 +15,7 @@ import 'package:path_provider/path_provider.dart';
 import 'device.dart' as device;
 import 'drive_controller.dart';
 import 'error_log.dart';
+import 'faces.dart';
 import 'search.dart';
 import 'stored_file.dart';
 
@@ -21,7 +23,7 @@ class ContentIndex extends ChangeNotifier {
   ContentIndex(this._drive);
 
   /// Raised when what is stored per photo changes, so old results are redone.
-  static const _version = 3;
+  static const _version = 4;
 
   final DriveController _drive;
 
@@ -33,6 +35,13 @@ class ContentIndex extends ChangeNotifier {
   final Map<int, DateTime> _skipped = {};
   static const _retryAfter = Duration(minutes: 10);
   File? _file;
+
+  /// Holds the id of the photo being looked at. If it is still there when
+  /// the app starts, that photo closed the app, and it is not tried again.
+  File? _marker;
+
+  /// Where the small pictures of faces are kept.
+  String? faceDir;
   bool _disposed = false;
   bool _running = false;
   int _unsaved = 0;
@@ -69,6 +78,8 @@ class ContentIndex extends ChangeNotifier {
     if (!available) return;
     final dir = await getApplicationSupportDirectory();
     _file = File('${dir.path}/content_index.json');
+    _marker = File('${dir.path}/content_index.busy');
+    faceDir = '${dir.path}/faces';
     try {
       if (_file!.existsSync()) {
         final m = jsonDecode(await _file!.readAsString());
@@ -83,6 +94,23 @@ class ContentIndex extends ChangeNotifier {
       }
     } on Object {
       // A damaged index is rebuilt.
+    }
+    try {
+      final crashed = int.tryParse(
+        _marker!.existsSync() ? _marker!.readAsStringSync().trim() : '',
+      );
+      if (crashed != null) {
+        // Remembered as looked at, so it is never tried again.
+        _found[crashed] = const PhotoContent();
+        _unsaved++;
+        logError(
+          'content index',
+          'The app closed while looking at photo $crashed; it is skipped',
+        );
+      }
+      if (_marker!.existsSync()) _marker!.deleteSync();
+    } on Object {
+      // Only a guard.
     }
     _drive.addListener(_onDriveChanged);
     _onDriveChanged();
@@ -112,11 +140,12 @@ class ContentIndex extends ChangeNotifier {
   /// enough for faces and small text), otherwise from its preview.
   Future<PhotoContent?> _lookAt(StoredFile file) async {
     final local = file.kind == FileKind.image ? _drive.localCopyOf(file) : null;
-    var result = local == null ? null : await device.analyzeImage(local);
+    final key = '${file.messageId}';
+    var result = local == null ? null : await _guarded(file, local, key);
     if (result == null) {
       final thumb = await _drive.thumbnail(file).catchError((_) => null);
       if (thumb != null && thumb != local) {
-        result = await device.analyzeImage(thumb);
+        result = await _guarded(file, thumb, key);
       }
     }
     if (result == null) return null;
@@ -124,7 +153,47 @@ class ContentIndex extends ChangeNotifier {
       labels: result.labels,
       text: result.text.replaceAll(RegExp(r'\s+'), ' ').trim(),
       faces: result.faces,
+      prints: result.prints,
     );
+  }
+
+  /// Looks at [path], noting first which photo it is, in case it closes
+  /// the app.
+  Future<
+    ({List<String> labels, String text, int faces, List<Int8List> prints})?
+  >
+  _guarded(StoredFile file, String path, String key) async {
+    try {
+      _marker?.writeAsStringSync(key, flush: true);
+    } on Object {
+      // Only a guard.
+    }
+    try {
+      return await device.analyzeImage(path, key: key, faceDir: faceDir);
+    } finally {
+      try {
+        if (_marker?.existsSync() ?? false) _marker!.deleteSync();
+      } on Object {
+        // Only a guard.
+      }
+    }
+  }
+
+  /// Every face with a fingerprint, newest photos first.
+  List<FaceRef> get faces => [
+    for (final f in _drive.files)
+      if (!f.isVault)
+        if (_found[f.messageId] case final c?)
+          for (var i = 0; i < c.prints.length; i++)
+            FaceRef(f.messageId, i, c.prints[i]),
+  ];
+
+  /// The small picture of a face, if it was saved.
+  String? faceImage(FaceRef face) {
+    final dir = faceDir;
+    if (dir == null) return null;
+    final path = '$dir/${face.messageId}_${face.index}.jpg';
+    return File(path).existsSync() ? path : null;
   }
 
   Future<void> _run() async {

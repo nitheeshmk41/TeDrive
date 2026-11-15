@@ -24,7 +24,7 @@ object PhotoWidgets {
     private const val PREFS = "tedrive_photo_widget"
 
     // Small enough to hand to the home screen, sharp enough for a large widget.
-    private const val MAX_SIDE = 640
+    private const val MAX_SIDE = 720
 
     private fun dir(context: Context) = File(context.filesDir, "widget_photos")
 
@@ -36,12 +36,13 @@ object PhotoWidgets {
      * Returns how many were saved. If none can be read, the old ones stay.
      */
     @Synchronized
-    fun setPhotos(context: Context, paths: List<String>, captions: List<String>): Int {
+    fun setPhotos(context: Context, paths: List<String>, captions: List<String>, ids: List<String>): Int {
         val dir = dir(context)
         val staging = File(context.filesDir, "widget_photos_new")
         staging.deleteRecursively()
         staging.mkdirs()
         val kept = ArrayList<String>()
+        val keptIds = ArrayList<String>()
         for ((i, path) in paths.withIndex()) {
             val bitmap = Images.decodeScaled(File(path), MAX_SIDE) ?: continue
             try {
@@ -50,6 +51,7 @@ object PhotoWidgets {
                     bitmap.compress(Bitmap.CompressFormat.JPEG, 85, it)
                 }
                 kept.add(captions.getOrNull(i) ?: "")
+                keptIds.add(ids.getOrNull(i) ?: "")
             } catch (e: Throwable) {
                 // Skip this one.
             }
@@ -62,6 +64,7 @@ object PhotoWidgets {
         staging.renameTo(dir)
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString("captions", kept.joinToString("\n") { it.replace('\n', ' ') })
+            .putString("ids", keptIds.joinToString("\n"))
             .putInt("shown", -1)
             .apply()
         refresh(context, advance = true)
@@ -69,8 +72,17 @@ object PhotoWidgets {
     }
 
     /** Redraws every photo widget; with [advance], with another photo. */
-    @Synchronized
     fun refresh(context: Context, advance: Boolean) {
+        // Never let the widget take the app down with it.
+        try {
+            draw(context, advance)
+        } catch (e: Throwable) {
+            android.util.Log.w("TeDrivePhotos", "Photo widget failed", e)
+        }
+    }
+
+    @Synchronized
+    private fun draw(context: Context, advance: Boolean) {
         val manager = AppWidgetManager.getInstance(context)
         val ids = manager.getAppWidgetIds(ComponentName(context, PhotoWidget::class.java))
         if (ids.isEmpty()) return
@@ -91,7 +103,12 @@ object PhotoWidgets {
         }
         val caption = (prefs.getString("captions", "") ?: "").split("\n").getOrNull(shown) ?: ""
         val views = RemoteViews(context.packageName, R.layout.photo_widget)
-        views.setOnClickPendingIntent(R.id.widget_root, BackupSchedule.openAppIntent(context, null, 5105))
+        // Tapping the photo opens it in TeDrive.
+        val id = (prefs.getString("ids", "") ?: "").split("\n").getOrNull(shown)?.takeIf { it.isNotEmpty() }
+        views.setOnClickPendingIntent(
+            R.id.widget_root,
+            BackupSchedule.openAppIntent(context, id?.let { "openPhoto:$it" }, 5105),
+        )
         if (bitmap == null) {
             views.setViewVisibility(R.id.widget_empty, View.VISIBLE)
             views.setViewVisibility(R.id.widget_photo, View.GONE)

@@ -27,6 +27,8 @@ object BackupSchedule {
     private const val REQUEST_ALARM = 5101
     private const val CHANNEL_ID = "backup_reminders"
     private const val NOTIFICATION_ID = 2
+    private const val UPDATE_CHANNEL_ID = "app_updates"
+    private const val UPDATE_NOTIFICATION_ID = 3
     const val ACTION_BACKUP = "backup"
     const val EXTRA_ACTION = "tedrive_action"
 
@@ -108,6 +110,40 @@ object BackupSchedule {
         )
     }
 
+    fun notifyUpdated(context: Context) {
+        try {
+            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                manager.createNotificationChannel(
+                    NotificationChannel(UPDATE_CHANNEL_ID, "App updates", NotificationManager.IMPORTANCE_DEFAULT),
+                )
+            }
+            if (Build.VERSION.SDK_INT >= 33 &&
+                context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            ) {
+                return
+            }
+            val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                Notification.Builder(context, UPDATE_CHANNEL_ID)
+            } else {
+                @Suppress("DEPRECATION")
+                Notification.Builder(context)
+            }
+            manager.notify(
+                UPDATE_NOTIFICATION_ID,
+                builder
+                    .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                    .setContentTitle("TeDrive updated to ${BuildConfig.VERSION_NAME}")
+                    .setContentText("Tap to open it.")
+                    .setContentIntent(openAppIntent(context, null, 5107))
+                    .setAutoCancel(true)
+                    .build(),
+            )
+        } catch (e: Throwable) {
+            // Only a nicety.
+        }
+    }
+
     fun notifyDue(context: Context, count: Int) {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -144,8 +180,16 @@ object BackupSchedule {
 class BackupAlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
-            Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_MY_PACKAGE_REPLACED -> {
+            Intent.ACTION_BOOT_COMPLETED -> {
                 BackupSchedule.schedule(context)
+                return
+            }
+            Intent.ACTION_MY_PACKAGE_REPLACED -> {
+                BackupSchedule.schedule(context)
+                // Android closes the app to install an update; offer to
+                // open it again, and give the photo widget a fresh look.
+                BackupSchedule.notifyUpdated(context)
+                PhotoWidgets.refresh(context, advance = false)
                 return
             }
         }
