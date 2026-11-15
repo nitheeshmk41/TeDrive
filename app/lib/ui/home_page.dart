@@ -15,12 +15,15 @@ import 'package:share_plus/share_plus.dart';
 
 import '../app_lock.dart';
 import '../backup_controller.dart';
+import '../backup_plan.dart' show groupThousands;
 import '../content_index.dart';
 import '../device.dart' as device;
 import '../config.dart';
 import '../drive_controller.dart';
 import '../search.dart';
 import '../error_log.dart';
+import '../photo_widget.dart';
+import '../photo_widget_plan.dart';
 import '../stored_file.dart';
 import '../td/web_bridge.dart';
 import '../tedrive_service.dart';
@@ -58,6 +61,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _drive,
   );
   late final ContentIndex _contents = ContentIndex(_drive);
+  late final PhotoWidgetController _widgetPhotos = PhotoWidgetController(
+    widget.service,
+    _drive,
+    _contents,
+  );
   final _search = TextEditingController();
   _Tab _tab = _Tab.photos;
   Category _category = Category.all;
@@ -87,7 +95,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _drive.load().then((_) {
       if (!mounted) return;
       if (_hasBackup) _backup.init().then((_) => _takeLaunchAction());
-      _contents.init();
+      _contents.init().then((_) => _widgetPhotos.init());
       _clearDecryptedVaultCopies();
       // Keep the app light: downloaded copies are a cache, not storage.
       _drive.trimCache(_cacheLimitBytes).catchError((_) {});
@@ -184,6 +192,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     device.onSharedFiles(null);
     device.onLaunchAction(null);
     _contents.removeListener(_onContentsChanged);
+    _widgetPhotos.dispose();
     _contents.dispose();
     _backup.dispose();
     _drive.dispose();
@@ -1850,9 +1859,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           Expanded(
             child: Text(
               p.done >= p.total
-                  ? 'Also searched what is in your ${p.total} photos'
-                  : 'Also searching what is in your photos: '
-                        '${p.done} of ${p.total} looked at so far',
+                  ? 'Also searched what is in your ${p.total} photos and '
+                        'videos'
+                  : 'Also searching what is in your photos and videos: '
+                        '${p.done} of ${p.total} looked at so far'
+                        '${p.unread > 0 ? ' (${p.unread} have no preview '
+                                  'yet)' : ''}. This continues while '
+                        'TeDrive is open.',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
@@ -1994,7 +2007,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final rootFolders = directSubfolders(_drive.files);
     final display = rootFolders.isNotEmpty ? rootFolders : _drive.folders;
     final smart = _contents.albums;
-    if (display.isEmpty && smart.isEmpty) {
+    final videos = [
+      for (final f in _drive.files)
+        if (f.kind == FileKind.video && !f.isVault) f,
+    ];
+    if (display.isEmpty && smart.isEmpty && videos.isEmpty) {
       return _emptyOrLoading(
         icon: Icons.photo_album_outlined,
         title: 'No albums yet',
@@ -2004,6 +2021,39 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       );
     }
     return _scroll([
+      if (PhotoWidgetController.available)
+        SliverToBoxAdapter(child: _photoWidgetTile()),
+      if (videos.isNotEmpty)
+        SliverToBoxAdapter(
+          child: _albumRow(
+            title: 'Videos',
+            icon: Icons.videocam_outlined,
+            cards: [
+              _AlbumCard(
+                drive: _drive,
+                name: 'All videos',
+                files: videos,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => _videosPage(null)),
+                ),
+              ),
+              for (final folder in foldersOf(videos))
+                _AlbumCard(
+                  drive: _drive,
+                  name: folderBaseName(folder),
+                  files: [
+                    for (final f in videos)
+                      if (f.folder == folder) f,
+                  ],
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => _videosPage(folder),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
       if (smart.isNotEmpty) SliverToBoxAdapter(child: _smartAlbums(smart)),
       if (smart.isNotEmpty && display.isNotEmpty)
         SliverToBoxAdapter(
@@ -2015,36 +2065,60 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             ),
           ),
         ),
-      SliverPadding(
-        padding: const EdgeInsets.all(12),
-        sliver: SliverGrid.builder(
-          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-            maxCrossAxisExtent: 220,
-            mainAxisSpacing: 12,
-            crossAxisSpacing: 12,
-            childAspectRatio: 0.86,
+      if (display.isNotEmpty)
+        SliverPadding(
+          padding: const EdgeInsets.all(12),
+          sliver: SliverGrid.builder(
+            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: 220,
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
+              childAspectRatio: 0.86,
+            ),
+            itemCount: display.length,
+            itemBuilder: (context, i) {
+              final name = display[i];
+              final inAlbum = filesInFolder(
+                _drive.files,
+                name,
+                recursive: true,
+              );
+              return _AlbumCard(
+                drive: _drive,
+                name: folderBaseName(name),
+                files: inAlbum,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => _albumPage(name)),
+                ),
+              );
+            },
           ),
-          itemCount: display.length,
-          itemBuilder: (context, i) {
-            final name = display[i];
-            final inAlbum = filesInFolder(_drive.files, name, recursive: true);
-            return _AlbumCard(
-              drive: _drive,
-              name: folderBaseName(name),
-              files: inAlbum,
-              onTap: () => Navigator.of(
-                context,
-              ).push(MaterialPageRoute<void>(builder: (_) => _albumPage(name))),
-            );
-          },
         ),
-      ),
     ]);
   }
 
   /// A row of albums made from what is in the photos. Opening one searches
   /// for it.
-  Widget _smartAlbums(List<SmartAlbum> smart) {
+  Widget _smartAlbums(List<SmartAlbum> smart) => _albumRow(
+    title: 'Found in your photos',
+    icon: Icons.auto_awesome,
+    cards: [
+      for (final album in smart)
+        _AlbumCard(
+          drive: _drive,
+          name: album.title,
+          files: album.files,
+          onTap: () => setState(() => _search.text = album.query),
+        ),
+    ],
+  );
+
+  /// A titled row of album cards that scrolls sideways.
+  Widget _albumRow({
+    required String title,
+    required IconData icon,
+    required List<Widget> cards,
+  }) {
     final theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2053,13 +2127,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
           child: Row(
             children: [
-              Icon(
-                Icons.auto_awesome,
-                size: 18,
-                color: theme.colorScheme.primary,
-              ),
+              Icon(icon, size: 18, color: theme.colorScheme.primary),
               const SizedBox(width: 8),
-              Text('Found in your photos', style: theme.textTheme.titleSmall),
+              Text(title, style: theme.textTheme.titleSmall),
             ],
           ),
         ),
@@ -2068,20 +2138,161 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.all(12),
-            itemCount: smart.length,
+            itemCount: cards.length,
             separatorBuilder: (_, _) => const SizedBox(width: 12),
-            itemBuilder: (context, i) => SizedBox(
-              width: 132,
-              child: _AlbumCard(
-                drive: _drive,
-                name: smart[i].title,
-                files: smart[i].files,
-                onTap: () => setState(() => _search.text = smart[i].query),
-              ),
-            ),
+            itemBuilder: (context, i) => SizedBox(width: 132, child: cards[i]),
           ),
         ),
       ],
+    );
+  }
+
+  /// Every video in the drive, or those of one album, newest first.
+  Widget _videosPage(String? folder) => ListenableBuilder(
+    listenable: _drive,
+    builder: (context, _) {
+      final videos = [
+        for (final f in _drive.files)
+          if (f.kind == FileKind.video &&
+              !f.isVault &&
+              (folder == null || f.folder == folder))
+            f,
+      ];
+      return Scaffold(
+        appBar: AppBar(
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(folder == null ? 'Videos' : folderBaseName(folder)),
+              Text(
+                '${videos.length} video${videos.length == 1 ? '' : 's'} · '
+                '${formatBytes(videos.fold(0, (s, f) => s + f.size))}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ),
+        ),
+        body: videos.isEmpty
+            ? const Center(child: Text('No videos here.'))
+            : CustomScrollView(
+                slivers: [
+                  ...gallerySlivers(
+                    context: context,
+                    drive: _drive,
+                    files: videos,
+                    onTap: (f) => _open(f, videos),
+                    onLongPress: _showActions,
+                  ),
+                  const SliverToBoxAdapter(child: SizedBox(height: 24)),
+                ],
+              ),
+      );
+    },
+  );
+
+  /// What the home-screen photo widget shows, with a way to change it.
+  Widget _photoWidgetTile() => ListenableBuilder(
+    listenable: _widgetPhotos,
+    builder: (context, _) => Padding(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+      child: Card(
+        margin: EdgeInsets.zero,
+        child: ListTile(
+          leading: const Icon(Icons.widgets_outlined),
+          title: const Text('Photo widget'),
+          subtitle: Text('Shows: ${_widgetPhotos.source.title}'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: _choosePhotoWidget,
+        ),
+      ),
+    ),
+  );
+
+  /// Lets the user choose which photos the home-screen widget shows.
+  void _choosePhotoWidget() {
+    final smart = _contents.albums;
+    final skip = {
+      'People',
+      'Selfies & portraits',
+      'Groups',
+      'Text & documents',
+    };
+    final choices = <(WidgetSource, IconData)>[
+      (WidgetSource.all, Icons.photo_library_outlined),
+      (const WidgetSource(WidgetSourceKind.portraits), Icons.face_outlined),
+      (const WidgetSource(WidgetSourceKind.people), Icons.people_outline),
+      (const WidgetSource(WidgetSourceKind.starred), Icons.star_outline),
+      for (final a in smart)
+        if (!skip.contains(a.title))
+          (WidgetSource(WidgetSourceKind.thing, a.title), Icons.auto_awesome),
+      for (final folder in _drive.folders)
+        (
+          WidgetSource(WidgetSourceKind.album, folder),
+          Icons.photo_album_outlined,
+        ),
+    ];
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheet) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.7,
+        maxChildSize: 0.92,
+        builder: (context, scroll) => ListView(
+          controller: scroll,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 0, 20, 4),
+              child: Text(
+                'Photo widget',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+              child: Text(
+                'Choose the photos it shows. It picks some at random and '
+                'changes every half hour. To add it, press and hold an '
+                'empty part of your home screen, tap Widgets, and find '
+                'TeDrive photos.\n\n'
+                'Selfies & portraits are photos with one face in them. '
+                'TeDrive cannot yet tell whose face it is.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+            for (final (source, icon) in choices)
+              Builder(
+                builder: (context) {
+                  final count = _widgetPhotos.countFor(source);
+                  final current = source == _widgetPhotos.source;
+                  return ListTile(
+                    leading: Icon(icon),
+                    title: Text(source.title),
+                    subtitle: Text(
+                      count == 1
+                          ? '1 photo'
+                          : '${groupThousands(count)} photos',
+                    ),
+                    trailing: current ? const Icon(Icons.check) : null,
+                    selected: current,
+                    enabled: count > 0,
+                    onTap: () async {
+                      Navigator.pop(sheet);
+                      final shown = await _widgetPhotos.setSource(source);
+                      _toast(
+                        shown > 0
+                            ? 'The photo widget now shows ${source.title}'
+                            : 'Could not read those photos yet. Try again '
+                                  'in a moment.',
+                      );
+                    },
+                  );
+                },
+              ),
+          ],
+        ),
+      ),
     );
   }
 

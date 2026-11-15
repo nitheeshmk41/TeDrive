@@ -26,16 +26,112 @@ class PhotoContent {
     if (faces > 0) 'f': faces,
   };
 
-  /// Everything a search word may match, lower case.
-  String get searchText => [
-    ...labels,
-    text,
-    if (faces >= 1) 'people person face faces',
-    if (faces == 1) 'selfie portrait',
-    if (faces >= 2) 'group together',
-    if (isTexty) 'text document writing',
-  ].join(' ').toLowerCase();
+  /// Words a search may match by their start, lower case: what was found,
+  /// plus other words for the same thing ("kitten" finds a cat).
+  Set<String> get keywords => {
+    for (final label in labels) ...[
+      ..._wordsOf(label),
+      ...?_related[label.toLowerCase()],
+    ],
+    if (faces >= 1) ...['people', 'person', 'face', 'faces'],
+    if (faces == 1) ...['selfie', 'portrait'],
+    if (faces >= 2) ...['group', 'together', 'friends'],
+    if (isTexty) ...['text', 'document', 'writing'],
+  };
 }
+
+final _notWord = RegExp(r'[^\p{L}\p{N}]+', unicode: true);
+
+Iterable<String> _wordsOf(String text) =>
+    text.toLowerCase().split(_notWord).where((w) => w.isNotEmpty);
+
+/// The words a photo adds to a search, worked out once per photo.
+final _photoWords = Expando<Set<String>>();
+
+Set<String> _photoWordsOf(PhotoContent content) =>
+    _photoWords[content] ??= {...content.keywords, ..._wordsOf(content.text)};
+
+/// Other words people search with, for things the phone finds in photos.
+/// Keys are the labels it gives, lower case. A label not listed here is
+/// still found by its own name.
+const _related = <String, List<String>>{
+  'cat': ['kitten', 'kitty', 'pet', 'animal'],
+  'dog': ['puppy', 'pet', 'animal'],
+  'pet': ['animal'],
+  'bird': ['animal'],
+  'horse': ['animal'],
+  'cattle': ['cow', 'animal'],
+  'bear': ['animal'],
+  'butterfly': ['insect'],
+  'food': ['meal', 'eat', 'eating', 'dish', 'lunch', 'dinner', 'breakfast'],
+  'cuisine': ['food', 'meal', 'dish'],
+  'fast food': ['food', 'burger', 'snack'],
+  'cake': ['food', 'dessert', 'birthday'],
+  'pizza': ['food'],
+  'fruit': ['food'],
+  'vegetable': ['food'],
+  'coffee': ['drink', 'cafe'],
+  'cup': ['drink'],
+  'juice': ['drink'],
+  'sky': ['outdoor', 'outside'],
+  'cloud': ['sky'],
+  'sunset': ['sky', 'evening', 'sunrise'],
+  'beach': ['sea', 'ocean', 'sand', 'shore', 'coast'],
+  'sea': ['ocean', 'beach', 'water'],
+  'lake': ['water'],
+  'river': ['water'],
+  'waterfall': ['water', 'falls'],
+  'mountain': ['hill', 'hills', 'trek', 'nature'],
+  'forest': ['trees', 'woods', 'nature'],
+  'tree': ['nature'],
+  'plant': ['nature', 'green'],
+  'flower': ['nature', 'bloom', 'garden'],
+  'garden': ['nature'],
+  'snow': ['winter'],
+  'car': ['vehicle', 'auto'],
+  'vehicle': ['car', 'transport'],
+  'motorcycle': ['bike', 'vehicle'],
+  'bicycle': ['bike', 'cycle'],
+  'bus': ['vehicle'],
+  'aircraft': ['plane', 'airplane', 'flight'],
+  'boat': ['ship'],
+  'building': ['house', 'architecture'],
+  'skyscraper': ['building', 'city', 'tower'],
+  'cityscape': ['city'],
+  'room': ['indoor', 'inside', 'home'],
+  'bedroom': ['room', 'home'],
+  'couch': ['sofa', 'home'],
+  'baby': ['child', 'kid', 'infant'],
+  'toy': ['kid', 'child'],
+  'smile': ['happy', 'smiling'],
+  'fun': ['happy'],
+  'wedding': ['marriage', 'bride', 'groom'],
+  'bride': ['wedding', 'marriage'],
+  'dance': ['dancing'],
+  'concert': ['music', 'show'],
+  'musical instrument': ['music'],
+  'guitar': ['music'],
+  'sports': ['game', 'match'],
+  'soccer': ['football', 'sports'],
+  'cricket': ['sports'],
+  'swimming': ['pool', 'swim'],
+  'computer': ['laptop', 'pc'],
+  'mobile phone': ['smartphone'],
+  'television': ['tv'],
+  'paper': ['document', 'page'],
+  'receipt': ['bill', 'invoice'],
+  'poster': ['banner'],
+  'eyelash': ['face'],
+  'sunglasses': ['glasses', 'shades'],
+  'jeans': ['clothes'],
+  'dress': ['clothes'],
+  'shoe': ['shoes', 'footwear'],
+  'jewellery': ['jewelry', 'gold'],
+  'christmas': ['xmas', 'festival'],
+  'fireworks': ['festival', 'diwali'],
+  'temple': ['worship'],
+  'night': ['dark'],
+};
 
 const _months = [
   'january', 'february', 'march', 'april', 'may', 'june', //
@@ -53,23 +149,29 @@ String _kindWords(FileKind kind) => switch (kind) {
   FileKind.other => 'other',
 };
 
-/// Everything about [file] that a search word may match: its name, album,
-/// type, date, device and camera, and what is in the photo.
+/// Text of [file] in which a search word may be found: its name, album,
+/// date, device and camera, and any printed text in the photo.
 String searchTextOf(StoredFile file, [PhotoContent? content]) {
   final when = file.taken ?? file.date;
   return [
     file.name,
     file.folder ?? '',
-    _kindWords(file.kind),
     '${when.year}',
     _months[when.month - 1],
     file.device ?? '',
     file.camera ?? '',
-    if (file.starred) 'starred favourite favorite',
-    if (file.location != null) 'location map place',
-    content?.searchText ?? '',
+    content?.text ?? '',
   ].join(' ').toLowerCase();
 }
+
+/// Words describing [file] that a search word may start: its type, what
+/// is in the photo, starred, and whether it has a place.
+Set<String> searchKeywordsOf(StoredFile file, [PhotoContent? content]) => {
+  ..._kindWords(file.kind).split(' '),
+  if (file.starred) ...['starred', 'favourite', 'favorite'],
+  if (file.location != null) ...['location', 'map', 'place'],
+  ...?content?.keywords,
+};
 
 /// The words of a search, lower case.
 List<String> searchWords(String query) => query
@@ -78,13 +180,25 @@ List<String> searchWords(String query) => query
     .where((w) => w.isNotEmpty)
     .toList();
 
-/// Whether every word of [query] is found somewhere in [file]. "photos"
-/// also finds "photo", and "beaches" finds "beach".
+/// Whether every word of [query] is found in [file]. "photos" also finds
+/// "photo", and "beaches" finds "beach". A word must start a word of the
+/// file ("cat" finds "cat" and "cats", not "vacation" or "location");
+/// words of four letters or more are also found inside its name and text
+/// ("shot" finds "Screenshot").
 bool matchesSearch(StoredFile file, String query, [PhotoContent? content]) {
   final words = searchWords(query);
   if (words.isEmpty) return true;
   final text = searchTextOf(file, content);
-  return words.every((w) => _variants(w).any(text.contains));
+  final own = {..._wordsOf(searchTextOf(file)), ...searchKeywordsOf(file)};
+  final inPhoto = content == null ? const <String>{} : _photoWordsOf(content);
+  return words.every(
+    (w) => _variants(w).any(
+      (v) =>
+          (v.length >= 4 && text.contains(v)) ||
+          own.any((s) => s.startsWith(v)) ||
+          inPhoto.any((s) => s.startsWith(v)),
+    ),
+  );
 }
 
 Iterable<String> _variants(String word) sync* {

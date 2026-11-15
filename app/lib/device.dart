@@ -148,6 +148,23 @@ Future<void> updateWidget(Map<String, Object> values) async {
   }
 }
 
+/// Gives the photo widget the photos at [paths] (small copies are made),
+/// each with a caption. Returns how many it could read.
+Future<int> setWidgetPhotos(List<String> paths, List<String> captions) async {
+  if (!isAndroid) return 0;
+  try {
+    return await _channel.invokeMethod<int>('setWidgetPhotos', {
+          'paths': paths,
+          'captions': captions,
+        }) ??
+        0;
+  } on PlatformException {
+    return 0;
+  } on MissingPluginException {
+    return 0;
+  }
+}
+
 /// Sets the Android alarm for daily or weekly backup ([mode] "off",
 /// "instant", "daily" or "weekly").
 Future<void> setBackupSchedule({

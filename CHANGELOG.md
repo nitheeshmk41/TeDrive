@@ -1,5 +1,26 @@
 # Changelog
 
+## v3.4.0
+
+### Videos in Albums
+- Albums now starts with a **Videos** row: **All videos**, then the videos of each album. Tap one to see only videos, grouped by day.
+
+### Search finds what is in a photo
+- Searching "cat" is meant to find a photo of a cat even when the file is called image.png. Three faults in how photos were looked at are fixed: a photo that is also on the phone was read at full size, which is slow (hours for a large library) and can fail outright on very large photos; a photo that failed was not tried again from its preview; and a failure was remembered as "nothing in this photo".
+- Everything is looked at again once after this update, with a lower threshold so more things are recognised. The line above the search results shows how far it has got. It runs while TeDrive is open.
+- Other words for the same thing work: "kitten" and "pet" find a cat, "sea" finds a beach, "bill" finds a receipt.
+- Videos are searched too, by their preview picture.
+- Short words no longer match in the middle of other words: "cat" used to find everything with a location (lo-cat-ion) and files named "vacation".
+
+### Photo widget
+- New home-screen widget, **TeDrive photos**: one of your photos, a different one every half hour, or tap its corner button for another. Tap the photo to open TeDrive.
+- Choose what it shows in **Albums → Photo widget**: all photos, selfies & portraits (photos with one face), people, starred, a thing found in your photos (Food, Sky, Pets…) or any album.
+- It cannot yet show only one particular person: TeDrive counts faces but does not recognise whose they are.
+- The three backup widgets are unchanged.
+
+### Updating
+- v3.3.1 offers this update when it starts and installs it over itself; sign-in, settings and files stay. Versions before v3.3.1 were signed with a different key and need one uninstall and reinstall, which the app walks you through.
+
 ## v3.3.1 (long-term support)
 
 ### Updating

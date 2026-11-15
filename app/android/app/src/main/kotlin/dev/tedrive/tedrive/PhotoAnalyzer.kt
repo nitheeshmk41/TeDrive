@@ -1,7 +1,7 @@
 package dev.tedrive.tedrive
 
 import android.content.Context
-import android.net.Uri
+import android.util.Log
 import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.FaceDetection
@@ -21,7 +21,7 @@ import java.util.concurrent.TimeUnit
 object PhotoAnalyzer {
     private val labeler by lazy {
         ImageLabeling.getClient(
-            ImageLabelerOptions.Builder().setConfidenceThreshold(0.6f).build(),
+            ImageLabelerOptions.Builder().setConfidenceThreshold(0.5f).build(),
         )
     }
     private val recognizer by lazy {
@@ -38,30 +38,46 @@ object PhotoAnalyzer {
         )
     }
 
-    /** Blocks; never call on the main thread. Null if the image cannot be read. */
+    /**
+     * Blocks; never call on the main thread. Null if the image cannot be
+     * read, or if nothing could look at it (so that it is tried again
+     * rather than remembered as empty).
+     */
     fun analyze(context: Context, path: String): Map<String, Any>? {
         val file = File(path)
         if (!file.exists()) return null
-        val image = try {
-            InputImage.fromFilePath(context, Uri.fromFile(file))
-        } catch (e: Throwable) {
+        // A reduced copy: much faster, and a huge photo cannot run out of memory.
+        val bitmap = Images.decodeScaled(file, 1280)
+        if (bitmap == null) {
+            Log.w(TAG, "Cannot read ${file.name}")
             return null
         }
+        val image = InputImage.fromBitmap(bitmap, 0)
+        var failed = 0
         val labels = try {
             Tasks.await(labeler.process(image), 30, TimeUnit.SECONDS).map { it.text }
         } catch (e: Throwable) {
+            Log.w(TAG, "Labels failed", e)
+            failed++
             emptyList()
         }
         val text = try {
             Tasks.await(recognizer.process(image), 30, TimeUnit.SECONDS).text
         } catch (e: Throwable) {
+            Log.w(TAG, "Text failed", e)
+            failed++
             ""
         }
         val faceCount = try {
             Tasks.await(faces.process(image), 30, TimeUnit.SECONDS).size
         } catch (e: Throwable) {
+            Log.w(TAG, "Faces failed", e)
+            failed++
             0
         }
+        if (failed == 3) return null
         return mapOf("labels" to labels, "text" to text, "faces" to faceCount)
     }
+
+    private const val TAG = "TeDrivePhotos"
 }

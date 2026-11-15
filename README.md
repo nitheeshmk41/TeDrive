@@ -30,7 +30,7 @@ Phones fill up, and cloud plans charge every month. Telegram already stores file
 | 🔎 **Smart search** | Find photos by what is in them ("beach", "food"), by text inside them, by people, month or year. Smart albums for People, Selfies, Groups and Text. All worked out on the phone |
 | 📁 **Drive** | Nested folders, multi-select, starred, recent, large files, duplicates, Trash with 30-day restore |
 | 🔄 **Phone backup** | Backup of chosen albums instantly, daily or weekly (Wi-Fi or charging only), then **Free up space** safely |
-| 🧩 **Widgets** | Three home-screen widgets: backup status, how much is backed up, and an overview with a **Back up now** button |
+| 🧩 **Widgets** | Four home-screen widgets: your photos (a different one every half hour, from all photos, an album, people or a thing you choose), backup status, how much is backed up, and an overview with a **Back up now** button |
 | 📦 **Export** | Download the whole drive as .zip files, so you are never locked in |
 | 📤 **Sharing** | Send files to any app, forward to a Telegram chat with no data used, send a smaller photo, or zip a whole folder |
 | 🔐 **Vault** | Documents encrypted on your device before upload; even Telegram cannot read them |

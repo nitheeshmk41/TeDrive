@@ -139,6 +139,14 @@ class MainActivity : FlutterFragmentActivity() {
                 Widgets.save(applicationContext, call.arguments as? Map<String, Any?> ?: emptyMap())
                 result.success(null)
             }
+            "setWidgetPhotos" -> {
+                val paths = call.argument<List<String>>("paths") ?: emptyList()
+                val captions = call.argument<List<String>>("captions") ?: emptyList()
+                thread {
+                    val saved = PhotoWidgets.setPhotos(applicationContext, paths, captions)
+                    runOnUiThread { result.success(saved) }
+                }
+            }
             "setBackupSchedule" -> {
                 BackupSchedule.save(
                     applicationContext,
