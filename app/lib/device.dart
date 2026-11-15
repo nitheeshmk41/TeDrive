@@ -75,12 +75,18 @@ void Function(String action)? _actionListener;
 
 void _installHandler() {
   if (!isAndroid) return;
-  final none = _sharedListener == null && _actionListener == null;
+  final none =
+      _sharedListener == null &&
+      _actionListener == null &&
+      _updateListener == null;
   _channel.setMethodCallHandler(
     none
         ? null
         : (call) async {
             if (call.method == 'sharedFilesReady') _sharedListener?.call();
+            if (call.method == 'updateDownloaded' && call.arguments is String) {
+              _updateListener?.call(call.arguments as String);
+            }
             if (call.method == 'launchAction' && call.arguments is String) {
               _actionListener?.call(call.arguments as String);
             }
@@ -377,6 +383,99 @@ Future<bool?> apkMatchesInstalled(String path) async {
     return null;
   }
 }
+
+/// Starts downloading an update in the background with Android's download
+/// manager. False if that is not possible here.
+Future<bool> startUpdateDownload(String url, String tag) async {
+  if (!isAndroid) return false;
+  try {
+    return await _channel.invokeMethod<bool>('startUpdate', {
+          'url': url,
+          'tag': tag,
+        }) ??
+        false;
+  } on Object {
+    return false;
+  }
+}
+
+typedef UpdateStatus = ({
+  /// "none", "running", "failed", "conflict" or "ready".
+  String state,
+  int done,
+  int total,
+  String? tag,
+  String? path,
+});
+
+/// Where the background update download is.
+Future<UpdateStatus> updateStatus() async {
+  const none = (state: 'none', done: 0, total: 0, tag: null, path: null);
+  if (!isAndroid) return none;
+  try {
+    final m = await _channel.invokeMapMethod<String, Object?>('updateStatus');
+    if (m == null) return none;
+    return (
+      state: m['state'] as String? ?? 'none',
+      done: (m['done'] as num?)?.toInt() ?? 0,
+      total: (m['total'] as num?)?.toInt() ?? 0,
+      tag: m['tag'] as String?,
+      path: m['path'] as String?,
+    );
+  } on Object {
+    return none;
+  }
+}
+
+/// Opens Android's installer for the downloaded update.
+Future<bool> installUpdate() async {
+  if (!isAndroid) return false;
+  try {
+    return await _channel.invokeMethod<bool>('installUpdate') ?? false;
+  } on Object {
+    return false;
+  }
+}
+
+/// How many times the app closed unexpectedly in the last [minutes].
+Future<int> recentCrashes({int minutes = 15}) async {
+  if (!isAndroid) return 0;
+  try {
+    return await _channel.invokeMethod<int>('recentCrashes', {
+          'minutes': minutes,
+        }) ??
+        0;
+  } on Object {
+    return 0;
+  }
+}
+
+Future<void> clearCrashes() async {
+  if (!isAndroid) return;
+  try {
+    await _channel.invokeMethod<void>('clearCrashes');
+  } on Object {
+    // Nothing to clear.
+  }
+}
+
+/// Shows another photo in the photo widget.
+Future<void> nextWidgetPhoto() async {
+  if (!isAndroid) return;
+  try {
+    await _channel.invokeMethod<void>('nextWidgetPhoto');
+  } on Object {
+    // Only a nicety.
+  }
+}
+
+/// Called when a background update download finishes, with its state.
+void onUpdateDownloaded(void Function(String state)? listener) {
+  _updateListener = listener;
+  _installHandler();
+}
+
+void Function(String state)? _updateListener;
 
 /// Opens Android's "Uninstall TeDrive?" screen.
 Future<bool> uninstallSelf() async {

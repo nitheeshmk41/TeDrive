@@ -68,6 +68,13 @@ object PhotoAnalyzer {
             } catch (e: Throwable) {
                 // Face matching is a nicety: everything else still works.
                 Log.w(TAG, "Face matching unavailable", e)
+                try {
+                    // Shown by Account → Copy error log.
+                    File(context.filesDir, "errors.log").appendText(
+                        "[face matching unavailable] ${e.javaClass.name}: ${e.message}\n",
+                    )
+                } catch (ignored: Throwable) {
+                }
                 embedderFailed = true
                 null
             }

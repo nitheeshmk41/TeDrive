@@ -68,14 +68,21 @@ class _PersonPickerPageState extends State<PersonPickerPage> {
               ),
             )
           : groups.isEmpty
-          ? const Center(
+          ? Center(
               child: Padding(
-                padding: EdgeInsets.all(32),
-                child: Text(
-                  'No face appears in more than one photo yet. Faces are '
-                  'found while TeDrive looks through your photos; try again '
-                  'later.',
-                  textAlign: TextAlign.center,
+                padding: const EdgeInsets.all(32),
+                child: Builder(
+                  builder: (context) {
+                    final p = widget.contents.progress;
+                    final faces = widget.contents.faces.length;
+                    return Text(
+                      'No face appears in more than one photo yet.\n\n'
+                      'TeDrive has looked at ${p.done} of ${p.total} photos '
+                      'and videos and found $faces faces so far. It carries '
+                      'on while TeDrive is open; come back in a while.',
+                      textAlign: TextAlign.center,
+                    );
+                  },
                 ),
               ),
             )

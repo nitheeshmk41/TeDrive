@@ -122,6 +122,14 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/overview_widget_info" />
         </receiver>
+        <!-- An app update finished downloading in the background. -->
+        <receiver
+            android:name=".UpdateDownloadReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.DOWNLOAD_COMPLETE" />
+            </intent-filter>
+        </receiver>
         <!-- Home-screen widget that shows the user's photos. -->
         <receiver
             android:name=".PhotoWidget"

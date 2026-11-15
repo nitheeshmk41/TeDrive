@@ -32,7 +32,7 @@ Brave's Android download manager sometimes never finishes a download. The file o
 
 ### Updating
 
-You never need to uninstall. In TeDrive open **Account → Check for updates** (TeDrive also checks when it starts). Tap **Download and install**; Android installs the new version over the old one and keeps your sign-in, files and settings.
+You never need to uninstall. In TeDrive open **Account → Check for updates** (TeDrive also checks when it starts). Tap **Download and install**. The download continues in the background (progress is in the notification bar), so you can keep using TeDrive or leave it. When it is ready, tap **Install now** in TeDrive or the notification, then **Update**. Android closes TeDrive for a few seconds while it installs; do not close the installer until it says the app is installed. Your sign-in, files and settings stay.
 
 Installing a newer APK by hand from the release page works the same way.
 

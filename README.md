@@ -27,16 +27,18 @@ Phones fill up, and cloud plans charge every month. Telegram already stores file
 | | |
 | :--- | :--- |
 | 📸 **Photo library** | Day-by-day timeline, "On this day" memories, a map of where photos were taken, EXIF details |
-| 🔎 **Smart search** | Find photos by what is in them ("beach", "food"), by text inside them, by people, month or year. Smart albums for People, Selfies, Groups and Text. All worked out on the phone |
+| 🔎 **Smart search** | Find photos by what is in them ("cat", "beach", "food"), even when the file is called image.png, and by related words ("kitten", "sea"). Also by text inside them, month, year or album. Smart albums for People, Selfies, Groups, Text and common things. All worked out on the phone |
+| 🎞️ **Videos** | A Videos row in Albums: all videos, or the videos of one album |
 | 📁 **Drive** | Nested folders, multi-select, starred, recent, large files, duplicates, Trash with 30-day restore |
 | 🔄 **Phone backup** | Backup of chosen albums instantly, daily or weekly (Wi-Fi or charging only), then **Free up space** safely |
-| 🧩 **Widgets** | Four home-screen widgets: your photos (a different one every half hour, from all photos, an album, people or a thing you choose), backup status, how much is backed up, and an overview with a **Back up now** button |
+| 🧩 **Widgets** | **TeDrive photos** shows your photos, a new one every half hour, each time you leave TeDrive, or when you tap its button. Choose all photos, one person (your face, say), people, starred, a thing or an album; tap the photo to open it. Also backup status, storage and overview widgets with **Back up now** |
+| 🙂 **Faces** | Faces that look alike are grouped on the phone, so the photo widget can show one person. No names, nothing uploaded |
 | 📦 **Export** | Download the whole drive as .zip files, so you are never locked in |
 | 📤 **Sharing** | Send files to any app, forward to a Telegram chat with no data used, send a smaller photo, or zip a whole folder |
 | 🔐 **Vault** | Documents encrypted on your device before upload; even Telegram cannot read them |
 | 🔒 **App lock** | PIN or fingerprint |
 | 📶 **Wi-Fi transfer** | Phone to laptop over local Wi-Fi with a QR code |
-| ⬆️ **Updates** | Check for updates in the app; new versions install over the old one |
+| ⬆️ **Updates** | The app offers new versions, downloads them in the background (you can leave the app) and installs them over the old one: sign-in, files and settings stay. If something new misbehaves, TeDrive pauses only that part and keeps working |
 | 💻 **Everywhere** | Android, Windows, macOS, Linux and the browser, all in sync |
 
 ## Download
@@ -51,6 +53,14 @@ Phones fill up, and cloud plans charge every month. Telegram already stores file
 | Browser | [tedrive.vercel.app](https://tedrive.vercel.app) |
 
 The Android links always give the newest version. All files are also on the [latest release](https://github.com/nitheeshmk41/TeDrive/releases/latest). Step-by-step instructions, including what to do if a download stops at 100%, are in the [install guide](docs/install.md).
+
+## Updating
+
+On Android, TeDrive checks for a new version when it starts. Tap **Update**: the download carries on in the background, with its progress in the notification bar. When it is ready, tap **Install now** (or the notification), then **Update**. Android closes TeDrive for a few seconds while it installs; that is normal. A **TeDrive updated** notification opens it again.
+
+Versions before v3.3.1 were signed with a different key and need one uninstall and reinstall; the app walks you through it. Your files are in Telegram and are not affected.
+
+If TeDrive closes unexpectedly twice in a short time, it starts with the newer extras (looking inside photos, faces, the photo widget) paused, so the rest of the app keeps working. **Account → Copy error log** gives the reason, to report it.
 
 ## Quick start
 

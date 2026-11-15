@@ -1,5 +1,24 @@
 # Changelog
 
+## v3.4.2
+
+### Updating
+- Updates download in the background with Android's download manager: progress shows in the notification bar, and you can close the update window, use TeDrive or leave it. When the download is ready, the app and a notification offer **Install now**. If the background download cannot start, TeDrive downloads it itself and asks you to keep it open.
+- The update window says that Android closes TeDrive for a few seconds while installing, and not to close the installer until it says the app is installed.
+- An update downloaded earlier is offered as soon as TeDrive starts.
+
+### New features can no longer stop the app from opening
+- Looking inside photos, faces and the photo widget now start a few seconds after your drive is on screen.
+- If TeDrive closes unexpectedly twice within 15 minutes, it starts with those extras paused and says so, with **Turn back on**. Everything else works as before.
+- If face matching cannot start on a phone, the reason is written to the error log.
+
+### Photo widget
+- **A person…** can always be opened. Until faces have been found, it shows how many photos TeDrive has looked at and how many faces it has found so far.
+- The widget shows a new photo each time you leave TeDrive, so tapping a photo, looking at it and going back gives a new one.
+
+### Releases
+- v3.4.0 and older releases were removed from GitHub. v3.4.1 updates to this version in place.
+
 ## v3.4.1
 
 ### App closing by itself

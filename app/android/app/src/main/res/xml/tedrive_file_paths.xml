@@ -4,6 +4,8 @@
     <!-- Files downloaded from Telegram. -->
     <files-path name="drive" path="tdlib_files/" />
     <cache-path name="cache" path="." />
+    <!-- App updates, handed to Android's installer. -->
+    <external-files-path name="updates" path="updates/" />
     <!-- Originals still on the phone (photos and videos that were backed up). -->
     <external-path name="phone" path="." />
     <root-path name="storage" path="storage/" />

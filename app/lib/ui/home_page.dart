@@ -73,6 +73,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   _Sort _sort = _Sort.newest;
   _View _view = _View.all;
   bool _appLockInitialized = false;
+
+  /// TeDrive closed unexpectedly more than once just now, so the extras
+  /// (looking inside photos, faces, the photo widget) are paused and the
+  /// rest of the app keeps working.
+  bool _safeMode = false;
+  bool _extrasStarted = false;
   bool _photoMapView = false;
 
   /// Message ids of the selected files. Not empty means selection mode.
@@ -96,7 +102,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _drive.load().then((_) {
       if (!mounted) return;
       if (_hasBackup) _backup.init().then((_) => _takeLaunchAction());
-      _contents.init().then((_) => _widgetPhotos.init());
+      _startExtras();
       if (!_hasBackup) _takeLaunchAction();
       _clearDecryptedVaultCopies();
       // Keep the app light: downloaded copies are a cache, not storage.
@@ -107,7 +113,67 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     });
     device.onSharedFiles(_takeSharedFiles);
     device.onLaunchAction(_onLaunchAction);
+    device.onUpdateDownloaded(_onUpdateDownloaded);
     _contents.addListener(_onContentsChanged);
+  }
+
+  /// Starts the extras a little after the drive is on screen, unless the
+  /// app has just closed unexpectedly: then they wait, and the user can
+  /// turn them back on. A fault in them cannot keep the app from opening.
+  Future<void> _startExtras({bool force = false}) async {
+    if (_extrasStarted) return;
+    if (!force && await device.recentCrashes() >= 2) {
+      if (!mounted) return;
+      setState(() => _safeMode = true);
+      _showSafeModeBanner();
+      return;
+    }
+    if (force) await device.clearCrashes();
+    _extrasStarted = true;
+    if (mounted && _safeMode) setState(() => _safeMode = false);
+    // Let the drive settle on screen first.
+    await Future<void>.delayed(Duration(seconds: force ? 0 : 6));
+    if (!mounted) return;
+    try {
+      await _contents.init();
+      await _widgetPhotos.init();
+    } on Object catch (e, st) {
+      logError('extras', e, st);
+    }
+  }
+
+  void _showSafeModeBanner() {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showMaterialBanner(
+      MaterialBanner(
+        leading: const Icon(Icons.health_and_safety_outlined),
+        content: const Text(
+          'TeDrive closed unexpectedly, so photo search by content, faces '
+          'and the photo widget are paused. Everything else works. Please '
+          'send the error log (Account → Copy error log).',
+        ),
+        actions: [
+          TextButton(
+            onPressed: messenger.hideCurrentMaterialBanner,
+            child: const Text('Keep paused'),
+          ),
+          FilledButton(
+            onPressed: () {
+              messenger.hideCurrentMaterialBanner();
+              _startExtras(force: true);
+            },
+            child: const Text('Turn back on'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// A background update download finished.
+  Future<void> _onUpdateDownloaded(String state) async {
+    if (!mounted || state != 'ready') return;
+    final s = await device.updateStatus();
+    if (mounted && s.tag != null) showUpdateReadyBanner(context, s.tag!);
   }
 
   /// Opening a vault file writes a decrypted copy to the cache. Copies left
@@ -166,12 +232,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
       AppLockService.instance.onPaused();
+      // Back on the home screen, the photo widget shows another photo.
+      if (state == AppLifecycleState.paused && !_safeMode) {
+        device.nextWidgetPhoto();
+      }
       return;
     }
     if (state != AppLifecycleState.resumed) return;
     if (AppLockService.instance.onResumed() && mounted) setState(() {});
     if (_hasBackup) _backup.onResume();
-    _widgetPhotos.refreshIfDue();
+    if (_extrasStarted) _widgetPhotos.refreshIfDue();
     _takeSharedFiles();
   }
 
@@ -202,6 +272,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     device.onSharedFiles(null);
     device.onLaunchAction(null);
+    device.onUpdateDownloaded(null);
     _contents.removeListener(_onContentsChanged);
     _widgetPhotos.dispose();
     _contents.dispose();
@@ -2211,9 +2282,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         child: ListTile(
           leading: const Icon(Icons.widgets_outlined),
           title: const Text('Photo widget'),
-          subtitle: Text('Shows: ${_widgetPhotos.source.title}'),
+          subtitle: Text(
+            _safeMode
+                ? 'Paused because TeDrive closed unexpectedly'
+                : 'Shows: ${_widgetPhotos.source.title}',
+          ),
           trailing: const Icon(Icons.chevron_right),
-          onTap: _choosePhotoWidget,
+          onTap: _safeMode ? _showSafeModeBanner : _choosePhotoWidget,
         ),
       ),
     ),
@@ -2300,12 +2375,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     ? 'Showing a person now. Tap to choose another.'
                     : hasFaces
                     ? 'Pick a face, such as yours'
-                    : 'Faces appear here once your photos have been '
-                          'looked at',
+                    : 'Faces appear while TeDrive looks through your '
+                          'photos. Tap to see how far it has got.',
               ),
               selected: _widgetPhotos.source.kind == WidgetSourceKind.person,
               trailing: const Icon(Icons.chevron_right),
-              enabled: hasFaces,
               onTap: () {
                 Navigator.pop(sheet);
                 _choosePerson();

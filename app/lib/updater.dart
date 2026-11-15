@@ -3,6 +3,7 @@
 // The new APK is signed with the same key, so it installs over the old one
 // and keeps every setting, the sign-in and the downloaded files.
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -100,6 +101,13 @@ Future<AppRelease?> latestRelease() async {
 /// Checks once when the app starts and offers the update in a snack bar.
 Future<void> checkForUpdateQuietly(BuildContext context) async {
   if (kIsWeb) return;
+  final downloaded = await device.updateStatus();
+  if (downloaded.state == 'ready' &&
+      isNewer(downloaded.tag ?? '', appVersion) &&
+      context.mounted) {
+    showUpdateReadyBanner(context, downloaded.tag!);
+    return;
+  }
   final release = await latestRelease();
   if (release == null || !isNewer(release.tag, appVersion)) return;
   if (!context.mounted) return;
@@ -121,6 +129,34 @@ Future<void> checkForUpdateQuietly(BuildContext context) async {
             showUpdateDialog(context, release: release);
           },
           child: const Text('Update'),
+        ),
+      ],
+    ),
+  );
+}
+
+/// A background download finished: offer to install it.
+void showUpdateReadyBanner(BuildContext context, String tag) {
+  final messenger = ScaffoldMessenger.of(context);
+  messenger.hideCurrentMaterialBanner();
+  messenger.showMaterialBanner(
+    MaterialBanner(
+      leading: const Icon(Icons.system_update_outlined),
+      content: Text(
+        'TeDrive $tag is downloaded and ready to install. Android closes '
+        'TeDrive for a few seconds while it installs; everything stays.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: messenger.hideCurrentMaterialBanner,
+          child: const Text('Later'),
+        ),
+        FilledButton(
+          onPressed: () {
+            messenger.hideCurrentMaterialBanner();
+            device.installUpdate();
+          },
+          child: const Text('Install now'),
         ),
       ],
     ),
@@ -152,10 +188,77 @@ class _UpdateDialogState extends State<_UpdateDialog> {
   /// Set when the new APK has a different signing key: where it was saved.
   String? _conflictApk;
 
+  /// Downloading with Android's download manager, which carries on when
+  /// TeDrive is closed.
+  bool _background = false;
+
+  /// The update is downloaded and checked.
+  bool _ready = false;
+  Timer? _poll;
+
+  @override
+  void dispose() {
+    _poll?.cancel();
+    super.dispose();
+  }
+
+  /// Follows the background download until it is ready or fails.
+  void _follow() {
+    _poll?.cancel();
+    _poll = Timer.periodic(const Duration(milliseconds: 700), (_) async {
+      final s = await device.updateStatus();
+      if (!mounted) return;
+      switch (s.state) {
+        case 'running':
+          setState(() => _progress = s.total > 0 ? s.done / s.total : 0);
+        case 'ready':
+          _poll?.cancel();
+          setState(() {
+            _progress = null;
+            _ready = true;
+          });
+        case 'conflict':
+          _poll?.cancel();
+          final saved = s.path == null
+              ? null
+              : await device.saveToDownloads(
+                  s.path!,
+                  name: 'TeDrive-${s.tag}.apk',
+                  mime: 'application/vnd.android.package-archive',
+                );
+          if (mounted) {
+            setState(() {
+              _progress = null;
+              _background = false;
+              _conflictApk = saved ?? '';
+            });
+          }
+        default:
+          // Failed or gone: download inside the app instead.
+          _poll?.cancel();
+          setState(() => _background = false);
+          _download(useBackground: false);
+      }
+    });
+  }
+
   @override
   void initState() {
     super.initState();
     _release = widget.release;
+    // A download already under way or finished, from earlier.
+    device.updateStatus().then((s) {
+      if (!mounted || !isNewer(s.tag ?? '', appVersion)) return;
+      if (s.state == 'running') {
+        setState(() {
+          _background = true;
+          _progress = 0;
+        });
+        _follow();
+      } else if (s.state == 'ready') {
+        setState(() => _ready = true);
+      }
+    });
     if (_release != null) {
       _checking = false;
     } else {
@@ -172,7 +275,9 @@ class _UpdateDialogState extends State<_UpdateDialog> {
 
   bool get _hasUpdate => _release != null && isNewer(_release!.tag, appVersion);
 
-  Future<void> _install() async {
+  Future<void> _install() => _download(useBackground: true);
+
+  Future<void> _download({required bool useBackground}) async {
     final release = _release!;
     if (!device.isAndroid) {
       await device.openLink(releasesPage);
@@ -188,6 +293,12 @@ class _UpdateDialogState extends State<_UpdateDialog> {
       _progress = 0;
       _error = null;
     });
+    if (useBackground && await device.startUpdateDownload(url, release.tag)) {
+      if (!mounted) return;
+      setState(() => _background = true);
+      _follow();
+      return;
+    }
     final client = HttpClient();
     try {
       final dir = await getTemporaryDirectory();
@@ -254,14 +365,44 @@ class _UpdateDialogState extends State<_UpdateDialog> {
           Text('Checking for updates…'),
         ],
       );
+    } else if (_ready) {
+      body = Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Ready to install', style: theme.textTheme.titleMedium),
+          const SizedBox(height: 8),
+          const Text(
+            'Tap Install now, then Update. Android closes TeDrive for a few '
+            'seconds while it installs: that is normal. Do not close the '
+            'installer until it says the app is installed, then tap Open.',
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Your sign-in, files and settings stay.',
+            style: theme.textTheme.bodySmall,
+          ),
+        ],
+      );
     } else if (_progress != null) {
       body = Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           LinearProgressIndicator(value: _progress == 0 ? null : _progress),
           const SizedBox(height: 12),
           Text(
-            'Downloading ${_release!.tag}… ${((_progress ?? 0) * 100).round()}%',
+            'Downloading ${_release?.tag ?? 'the update'}… '
+            '${((_progress ?? 0) * 100).round()}%',
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _background
+                ? 'This carries on in the background. You can close this '
+                      'window, use TeDrive or leave it; a notification '
+                      'tells you when it is ready to install.'
+                : 'Please keep TeDrive open until the download finishes.',
+            style: theme.textTheme.bodySmall,
           ),
         ],
       );
@@ -351,12 +492,30 @@ class _UpdateDialogState extends State<_UpdateDialog> {
             onPressed: () => device.openLink(releasesPage),
             child: const Text('Releases page'),
           ),
-        if (_progress == null)
+        if (_progress == null || _background)
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text(_hasUpdate ? 'Later' : 'Close'),
+            child: Text(
+              _background && !_ready
+                  ? 'Hide'
+                  : _hasUpdate || _ready
+                  ? 'Later'
+                  : 'Close',
+            ),
           ),
-        if (_conflictApk != null)
+        if (_ready)
+          FilledButton(
+            onPressed: () async {
+              if (!await device.installUpdate() && mounted) {
+                setState(() {
+                  _ready = false;
+                  _error = 'Could not open the installer.';
+                });
+              }
+            },
+            child: const Text('Install now'),
+          )
+        else if (_conflictApk != null)
           FilledButton(
             onPressed: device.uninstallSelf,
             child: const Text('Uninstall TeDrive'),
